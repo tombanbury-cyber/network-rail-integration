@@ -99,7 +99,14 @@ class OpenRailDataHub:
                 _LOGGER.info("Connected to STOMP broker; subscribing to %s", dest)
                 self._set_connected(True)
                 try:
-                    self._conn_ref.subscribe(destination=dest, id=1, ack="auto")
+                    self._conn_ref.subscribe(
+                        destination=dest, 
+                        id=1, 
+                        ack="auto",
+                        headers={
+                            "activemq.subscriptionName": f"openraildata-{self._topic}",
+                        },
+                    )
                 except Exception as exc:
                     _LOGGER.exception("Subscribe failed: %s", exc)
 

@@ -199,7 +199,16 @@ class OpenRailDataHub:
                 conn.set_listener("", listener)
 
                 _LOGGER.info("Connecting to %s:%s ...", NR_HOST, NR_PORT)
-                conn.connect(username=username, passcode=password, wait=True)
+                conn.connect(
+                    username=username, 
+                    passcode=password, 
+                    wait=True,
+                    headers={
+                        "host": "/",                      # IMPORTANT
+                        "client-id": self._username,      # recommended for durability
+                        "heart-beat": "15000,15000",
+                    },
+                )
 
                 while not self._stop_evt.is_set() and conn.is_connected():
                     time.sleep(0.5)

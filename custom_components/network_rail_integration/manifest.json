@@ -1,0 +1,14 @@
+{
+  "domain": "network_rail_integration",
+  "name": "Network Rail Integration",
+  "documentation": "https://github.com/tombanbury-cyber/network-rail-integration",
+  "requirements": [],
+  "codeowners": ["@tombanbury-cyber"],
+  "iot_class": "cloud_polling",
+  "config_flow": true,
+  "config_entry": true,
+  "version": "1.0.0",
+  "platforms": [
+    "sensor"
+  ]
+}

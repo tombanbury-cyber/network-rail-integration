@@ -1,0 +1,28 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Open Rail Data (Network Rail)",
+        "description": "Connect to Network Rail's public STOMP feed (OpenRailData).",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "topic": "Topic (e.g. TRAIN_MVT_ALL_TOC)"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options",
+        "description": "Optional filters applied to incoming Train Movements messages.",
+        "data": {
+          "stanox_filter": "Filter by STANOX (exact match)",
+          "toc_filter": "Filter by TOC ID (exact match)",
+          "event_types": "Filter by event types (e.g. ARRIVAL, DEPARTURE)"
+        }
+      }
+    }
+  }
+}

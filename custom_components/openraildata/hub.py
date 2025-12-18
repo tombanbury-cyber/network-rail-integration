@@ -1,0 +1,226 @@
+"""Hub that maintains the STOMP connection and shares latest data."""
+
+from __future__ import annotations
+
+import json
+import logging
+import threading
+import time
+from dataclasses import dataclass
+from typing import Any
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+from .const import (
+    CONF_EVENT_TYPES,
+    CONF_PASSWORD,
+    CONF_STANOX_FILTER,
+    CONF_TOC_FILTER,
+    CONF_TOPIC,
+    CONF_USERNAME,
+    DEFAULT_TOPIC,
+    DISPATCH_CONNECTED,
+    DISPATCH_MOVEMENT,
+    NR_HOST,
+    NR_PORT,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+
+@dataclass
+class HubState:
+    connected: bool = False
+    last_movement: dict[str, Any] | None = None
+    last_batch_count: int = 0
+    last_error: str | None = None
+    last_seen_monotonic: float | None = None
+
+
+class OpenRailDataHub:
+    """Owns the background STOMP client thread."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self.entry = entry
+        self.state = HubState()
+
+        self._stop_evt = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    async def async_start(self) -> None:
+        """Start the background thread."""
+        self._stop_evt.clear()
+        self._thread = threading.Thread(
+            target=self._thread_main,
+            name=f"openraildata-{self.entry.entry_id}",
+            daemon=True,
+        )
+        self._thread.start()
+
+    async def async_stop(self) -> None:
+        """Stop the background thread."""
+        self._stop_evt.set()
+        if self._thread and self._thread.is_alive():
+            await self.hass.async_add_executor_job(self._thread.join, 5)
+
+    def _thread_main(self) -> None:
+        """Blocking thread loop to manage STOMP connection."""
+        try:
+            import stomp  # type: ignore
+        except Exception as exc:  # pragma: no cover
+            _LOGGER.error("Failed to import stomp.py: %s", exc)
+            return
+
+        username = self.entry.data.get(CONF_USERNAME)
+        password = self.entry.data.get(CONF_PASSWORD)
+        topic = self.entry.data.get(CONF_TOPIC, DEFAULT_TOPIC)
+        dest = f"/topic/{topic}"
+
+        def _read_options() -> dict[str, Any]:
+            opt = self.entry.options
+            return {
+                CONF_STANOX_FILTER: opt.get(CONF_STANOX_FILTER, ""),
+                CONF_TOC_FILTER: opt.get(CONF_TOC_FILTER, ""),
+                CONF_EVENT_TYPES: opt.get(CONF_EVENT_TYPES, []),
+            }
+
+        reconnect_delay = 5
+
+        class _Listener(stomp.ConnectionListener):  # type: ignore
+            def __init__(self, hub: "OpenRailDataHub", conn_ref) -> None:
+                self._hub = hub
+                self._hass = hub.hass
+                self._conn_ref = conn_ref
+
+            def on_connected(self, frame):  # noqa: N802
+                _LOGGER.info("Connected to STOMP broker; subscribing to %s", dest)
+                self._set_connected(True)
+                try:
+                    self._conn_ref.subscribe(destination=dest, id=1, ack="auto")
+                except Exception as exc:
+                    _LOGGER.exception("Subscribe failed: %s", exc)
+
+            def on_disconnected(self):  # noqa: N802
+                _LOGGER.warning("Disconnected from STOMP broker")
+                self._set_connected(False)
+
+            def on_heartbeat_timeout(self):  # noqa: N802
+                _LOGGER.warning("STOMP heartbeat timeout")
+                self._set_connected(False)
+
+            def on_error(self, frame):  # noqa: N802
+                _LOGGER.error("STOMP error frame: %s", getattr(frame, "body", frame))
+
+            def on_message(self, frame):  # noqa: N802
+                body = getattr(frame, "body", "")
+                try:
+                    payload = json.loads(body)
+                except Exception:
+                    _LOGGER.debug("Non-JSON message received (ignored)")
+                    return
+
+                # Feed is a JSON list (may be empty)
+                if not isinstance(payload, list) or not payload:
+                    self._mark_seen(0)
+                    return
+
+                options = _read_options()
+                stanox_filter = (options.get(CONF_STANOX_FILTER) or "").strip()
+                toc_filter = (options.get(CONF_TOC_FILTER) or "").strip()
+                event_types = set(options.get(CONF_EVENT_TYPES) or [])
+
+                last = None
+                kept = 0
+                for item in payload:
+                    if not isinstance(item, dict):
+                        continue
+                    header = item.get("header") or {}
+                    if header.get("msg_type") != "0003":
+                        continue  # movement only
+                    mv = item.get("body") or {}
+                    if stanox_filter and str(mv.get("loc_stanox", "")) != stanox_filter:
+                        continue
+                    if toc_filter and str(mv.get("toc_id", "")) != toc_filter:
+                        continue
+                    if event_types and str(mv.get("event_type", "")) not in event_types:
+                        continue
+
+                    kept += 1
+                    last = item
+
+                self._mark_seen(len(payload))
+
+                if last is None:
+                    return
+
+                self._publish_last_movement(last, kept)
+
+            def _mark_seen(self, batch_count: int) -> None:
+                hass_loop = self._hass.loop
+                hass_loop.call_soon_threadsafe(self._update_seen, batch_count)
+
+            def _set_connected(self, is_connected: bool) -> None:
+                hass_loop = self._hass.loop
+                hass_loop.call_soon_threadsafe(self._update_connected, is_connected)
+
+            def _publish_last_movement(self, movement: dict[str, Any], kept: int) -> None:
+                hass_loop = self._hass.loop
+                hass_loop.call_soon_threadsafe(self._update_movement, movement, kept)
+
+            @callback
+            def _update_connected(self, is_connected: bool) -> None:
+                self._hub.state.connected = is_connected
+                async_dispatcher_send(self._hass, DISPATCH_CONNECTED, is_connected)
+
+            @callback
+            def _update_seen(self, batch_count: int) -> None:
+                self._hub.state.last_batch_count = batch_count
+                self._hub.state.last_seen_monotonic = time.monotonic()
+
+            @callback
+            def _update_movement(self, movement: dict[str, Any], kept: int) -> None:
+                self._hub.state.last_movement = movement
+                self._hub.state.last_batch_count = kept
+                self._hub.state.last_seen_monotonic = time.monotonic()
+                async_dispatcher_send(self._hass, DISPATCH_MOVEMENT)
+
+        conn = None
+        while not self._stop_evt.is_set():
+            try:
+                conn = stomp.Connection12(  # type: ignore
+                    host_and_ports=[(NR_HOST, NR_PORT)],
+                    heartbeats=(10000, 10000),
+                    keepalive=True,
+                )
+                listener = _Listener(self, conn)
+                conn.set_listener("", listener)
+
+                _LOGGER.info("Connecting to %s:%s ...", NR_HOST, NR_PORT)
+                conn.connect(username=username, passcode=password, wait=True)
+
+                while not self._stop_evt.is_set() and conn.is_connected():
+                    time.sleep(0.5)
+
+            except Exception as exc:
+                _LOGGER.warning("STOMP connection error: %s", exc)
+                self.state.connected = False
+                self.state.last_error = str(exc)
+                self.hass.loop.call_soon_threadsafe(
+                    async_dispatcher_send, self.hass, DISPATCH_CONNECTED, False
+                )
+
+            finally:
+                try:
+                    if conn and conn.is_connected():
+                        conn.disconnect()
+                except Exception:
+                    pass
+
+            if self._stop_evt.is_set():
+                break
+
+            time.sleep(reconnect_delay)
+            reconnect_delay = min(reconnect_delay * 2, 60)

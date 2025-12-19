@@ -1,4 +1,4 @@
-# Open Rail Data (Network Rail) – Home Assistant Integration
+# Network Rail Integration – Home Assistant Integration
 
 Connects to Network Rail's public **STOMP** broker and subscribes to **Train Movements** (default topic: `TRAIN_MVT_ALL_TOC`).
 
@@ -12,7 +12,7 @@ Connects to Network Rail's public **STOMP** broker and subscribes to **Train Mov
 1. Add this repository in HACS as a **Custom repository** (category: Integration).
 2. Install.
 3. Restart Home Assistant.
-4. Add via **Settings → Devices & services → Add integration → Open Rail Data (Network Rail)**.
+4. Add via **Settings → Devices & services → Add integration → Network Rail Integration**.
 
 ## Options
 
@@ -28,5 +28,5 @@ After adding the integration, open **Configure**:
 logger:
   default: info
   logs:
-    openraildata: debug
+    network_rail_integration: debug
 ```

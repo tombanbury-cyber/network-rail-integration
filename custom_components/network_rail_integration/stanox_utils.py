@@ -15,7 +15,8 @@ _stanox_data: list[dict[str, str]] | None = None
 def load_stanox_data() -> list[dict[str, str]]:
     """Load STANOX reference data from CSV file.
     
-    Returns a list of dictionaries with 'stanox' and 'stanme' keys.
+    Returns:
+        A list of dictionaries with 'stanox' and 'stanme' keys.
     """
     global _stanox_data
     
@@ -26,6 +27,15 @@ def load_stanox_data() -> list[dict[str, str]]:
     
     try:
         csv_path = Path(__file__).parent / "stanox-stanme.csv"
+        
+        if not csv_path.exists():
+            _LOGGER.error("STANOX reference data file not found: %s", csv_path)
+            return _stanox_data
+        
+        if not csv_path.is_file():
+            _LOGGER.error("STANOX reference data path is not a file: %s", csv_path)
+            return _stanox_data
+        
         with open(csv_path, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
             for row in reader:
@@ -39,6 +49,9 @@ def load_stanox_data() -> list[dict[str, str]]:
                         })
         
         _LOGGER.debug("Loaded %d STANOX entries", len(_stanox_data))
+    except FileNotFoundError:
+        _LOGGER.error("STANOX reference data file not found at expected location")
+        _stanox_data = []
     except Exception as exc:
         _LOGGER.error("Failed to load STANOX reference data: %s", exc)
         _stanox_data = []
@@ -49,7 +62,8 @@ def load_stanox_data() -> list[dict[str, str]]:
 def get_stanox_options() -> list[dict[str, str]]:
     """Get STANOX options formatted for Home Assistant selector.
     
-    Returns a list of dicts with 'value' (stanox) and 'label' (formatted display string).
+    Returns:
+        A list of dicts with 'value' (stanox) and 'label' (formatted display string).
     """
     data = load_stanox_data()
     

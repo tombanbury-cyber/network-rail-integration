@@ -40,7 +40,7 @@ class NetworkRailConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
 
         return self.async_create_entry(
-            title=f"Network Rail ({user_input. get(CONF_TOPIC, DEFAULT_TOPIC)})",
+            title=f"Network Rail ({user_input.get(CONF_TOPIC, DEFAULT_TOPIC)})",
             data=user_input,
         )
 

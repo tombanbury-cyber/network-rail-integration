@@ -1,14 +1,31 @@
 # Network Rail Integration – Home Assistant Integration
 
-Connects to Network Rail's public **STOMP** broker and subscribes to **Train Movements** (default topic: `TRAIN_MVT_ALL_TOC`).
+Connects to Network Rail's public **STOMP** broker and subscribes to:
+- **Train Movements** (default topic: `TRAIN_MVT_ALL_TOC`) - Real-time train arrival, departure, and passing events
+- **Train Describer** (optional topic: `TD_ALL_SIG_AREA`) - Real-time signalling berth occupancy for network diagrams
+
+## Features
+
+### Train Movements Feed
+Track train movements at specific stations with detailed arrival/departure information, platform numbers, train operating companies, and timing data.
+
+### Train Describer Feed (NEW in v1.5.0)
+Monitor train positions through signalling berths for creating live railway network diagrams. See [TRAIN_DESCRIBER.md](TRAIN_DESCRIBER.md) for details.
 
 ## Entities
 
 The integration creates the following entities:
 
+### Train Movements
 - **Binary sensor**: `binary_sensor.network_rail_integration_feed_connected` - Connection status to Network Rail feed
 - **Sensor**: `sensor.network_rail_integration_last_movement` - Last movement seen across all stations
 - **Sensor (per station)**: `sensor.network_rail_integration_<station_name>` - Last movement for each configured station
+
+### Train Describer (when enabled)
+- **Sensor**: `sensor.network_rail_integration_train_describer_status` - Overall TD status and statistics
+- **Sensor (per area)**: `sensor.network_rail_integration_td_area_<area_id>` - Berth occupancy for specific TD areas
+
+See [TRAIN_DESCRIBER.md](TRAIN_DESCRIBER.md) for more information about the Train Describer feed.
 
 ### Entity Naming
 
@@ -90,6 +107,18 @@ These filters apply to all tracked stations:
 - `event_types`: Only keep movements whose `event_type` is in the list (e.g., ARRIVAL, DEPARTURE)
 
 Configure these via **Configure Filters (TOC, Event Types)** in the options menu.
+
+### Configuring Train Describer
+
+To enable Train Describer feed:
+
+1. Open the integration configuration
+2. Select "Configure Train Describer"
+3. Enable the "Enable Train Describer Feed" checkbox
+4. Optionally specify TD area IDs (comma-separated) to track specific areas
+5. Save the configuration
+
+See [TRAIN_DESCRIBER.md](TRAIN_DESCRIBER.md) for detailed information about the Train Describer feature.
 
 ### Finding STANOX Codes
 

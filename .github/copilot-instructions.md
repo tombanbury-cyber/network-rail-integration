@@ -1,7 +1,7 @@
 # Copilot Instructions for network-rail-integration
 
 ## Project Overview
-This is a Home Assistant Custom Component (HACS) integration for tracking UK train movements using Network Rail data. 
+This is a Home Assistant Custom Component (HACS) integration for tracking UK train movements using Network Rail data.  
 
 ## Code Style and Standards
 
@@ -71,3 +71,31 @@ This is a Home Assistant Custom Component (HACS) integration for tracking UK tra
 - Avoid blocking the event loop
 - Implement efficient data polling intervals
 - Clean up resources properly on shutdown
+
+## Version Management
+
+### Automatic Version Bumping
+When making changes that require a version update, automatically bump the version number in `manifest.json`:
+
+- **Patch version** (0.0.X): Bug fixes, minor changes, documentation updates
+- **Minor version** (0.X.0): New features, non-breaking changes, significant improvements
+- **Major version** (X.0.0): Breaking changes, major refactors, API changes
+
+**Process:**
+1. Read the current version from `custom_components/network_rail_integration/manifest.json`
+2. Determine the appropriate version bump based on the change type
+3. Update the `"version"` field in manifest.json using semantic versioning (semver)
+4. Include the version bump in the same commit/PR as the changes
+5. Update CHANGELOG.md or release notes with the new version and changes
+
+**Example:**
+- Current version: `"version": "1.2.3"`
+- After bug fix: `"version": "1.2.4"`
+- After new feature: `"version": "1.3.0"`
+- After breaking change: `"version": "2.0.0"`
+
+**Guidelines:**
+- Always bump the version when making functional changes
+- Keep the version format as a string in manifest.json: `"version": "X.Y.Z"`
+- Ensure version matches any GitHub releases or HACS version tags
+- Consider using GitHub Actions for automated version bumping on release

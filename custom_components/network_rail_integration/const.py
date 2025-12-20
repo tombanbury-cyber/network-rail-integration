@@ -10,11 +10,15 @@ CONF_STATIONS = "stations"  # List of station configs
 CONF_TOC_FILTER = "toc_filter"
 CONF_EVENT_TYPES = "event_types"
 CONF_FIX_DST_QUIRK = "fix_dst_quirk"
+CONF_ENABLE_TD = "enable_td"  # Enable Train Describer feed
+CONF_TD_AREAS = "td_areas"  # List of TD area IDs to track
 
 DEFAULT_TOPIC = "TRAIN_MVT_ALL_TOC"
+DEFAULT_TD_TOPIC = "TD_ALL_SIG_AREA"
 
 NR_HOST = "publicdatafeeds.networkrail.co.uk"
 NR_PORT = 61618
 
 DISPATCH_MOVEMENT = f"{DOMAIN}_movement"
 DISPATCH_CONNECTED = f"{DOMAIN}_connected"
+DISPATCH_TD = f"{DOMAIN}_td"  # Train Describer messages

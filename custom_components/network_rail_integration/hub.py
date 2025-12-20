@@ -17,6 +17,7 @@ from .const import (
     CONF_EVENT_TYPES,
     CONF_PASSWORD,
     CONF_STANOX_FILTER,
+    CONF_STATIONS,
     CONF_TOC_FILTER,
     CONF_TOPIC,
     CONF_USERNAME,
@@ -34,9 +35,14 @@ _LOGGER = logging.getLogger(__name__)
 class HubState:
     connected: bool = False
     last_movement: dict[str, Any] | None = None
+    last_movement_per_station: dict[str, dict[str, Any]] = None  # stanox -> movement
     last_batch_count: int = 0
     last_error: str | None = None
     last_seen_monotonic: float | None = None
+    
+    def __post_init__(self):
+        if self.last_movement_per_station is None:
+            self.last_movement_per_station = {}
 
 
 class OpenRailDataHub:
@@ -83,6 +89,7 @@ class OpenRailDataHub:
             opt = self.entry.options
             return {
                 CONF_STANOX_FILTER: opt.get(CONF_STANOX_FILTER, ""),
+                CONF_STATIONS: opt.get(CONF_STATIONS, []),
                 CONF_TOC_FILTER: opt.get(CONF_TOC_FILTER, ""),
                 CONF_EVENT_TYPES: opt.get(CONF_EVENT_TYPES, []),
             }
@@ -136,11 +143,23 @@ class OpenRailDataHub:
 
                 options = _read_options()
                 stanox_filter = (options.get(CONF_STANOX_FILTER) or "").strip()
+                stations = options.get(CONF_STATIONS, [])
                 toc_filter = (options.get(CONF_TOC_FILTER) or "").strip()
                 event_types = set(options.get(CONF_EVENT_TYPES) or [])
+                
+                # Build set of station stanox codes to track
+                tracked_stanox = set()
+                if stanox_filter:  # Backward compatibility with old single filter
+                    tracked_stanox.add(stanox_filter)
+                for station in stations:
+                    stanox = station.get("stanox", "").strip()
+                    if stanox:
+                        tracked_stanox.add(stanox)
 
                 last = None
                 kept = 0
+                station_movements = {}  # stanox -> last movement for that station
+                
                 for item in payload:
                     if not isinstance(item, dict):
                         continue
@@ -148,7 +167,10 @@ class OpenRailDataHub:
                     if header.get("msg_type") != "0003":
                         continue  # movement only
                     mv = item.get("body") or {}
-                    if stanox_filter and str(mv.get("loc_stanox", "")) != stanox_filter:
+                    loc_stanox = str(mv.get("loc_stanox", ""))
+                    
+                    # Check if this movement is for a tracked station
+                    if tracked_stanox and loc_stanox not in tracked_stanox:
                         continue
                     if toc_filter and str(mv.get("toc_id", "")) != toc_filter:
                         continue
@@ -157,13 +179,17 @@ class OpenRailDataHub:
 
                     kept += 1
                     last = item
+                    
+                    # Track per station
+                    if loc_stanox:
+                        station_movements[loc_stanox] = item
 
                 self._mark_seen(len(payload))
 
                 if last is None:
                     return
 
-                self._publish_last_movement(last, kept)
+                self._publish_last_movement(last, kept, station_movements)
 
             def _mark_seen(self, batch_count: int) -> None:
                 hass_loop = self._hass.loop
@@ -173,9 +199,9 @@ class OpenRailDataHub:
                 hass_loop = self._hass.loop
                 hass_loop.call_soon_threadsafe(self._update_connected, is_connected)
 
-            def _publish_last_movement(self, movement: dict[str, Any], kept: int) -> None:
+            def _publish_last_movement(self, movement: dict[str, Any], kept: int, station_movements: dict[str, dict[str, Any]]) -> None:
                 hass_loop = self._hass.loop
-                hass_loop.call_soon_threadsafe(self._update_movement, movement, kept)
+                hass_loop.call_soon_threadsafe(self._update_movement, movement, kept, station_movements)
 
             @callback
             def _update_connected(self, is_connected: bool) -> None:
@@ -188,11 +214,16 @@ class OpenRailDataHub:
                 self._hub.state.last_seen_monotonic = time.monotonic()
 
             @callback
-            def _update_movement(self, movement: dict[str, Any], kept: int) -> None:
+            def _update_movement(self, movement: dict[str, Any], kept: int, station_movements: dict[str, dict[str, Any]]) -> None:
                 self._hub.state.last_movement = movement
+                self._hub.state.last_movement_per_station.update(station_movements)
                 self._hub.state.last_batch_count = kept
                 self._hub.state.last_seen_monotonic = time.monotonic()
+                # Dispatch general movement event
                 async_dispatcher_send(self._hass, DISPATCH_MOVEMENT)
+                # Dispatch per-station movement events
+                for stanox in station_movements:
+                    async_dispatcher_send(self._hass, f"{DISPATCH_MOVEMENT}_{stanox}")
 
         conn = None
         while not self._stop_evt.is_set():

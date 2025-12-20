@@ -58,6 +58,61 @@ def _ms_to_local_iso(ms: Any) -> str | None:
     return dt_local.isoformat()
 
 
+def _build_movement_attributes(header: dict[str, Any], body: dict[str, Any], extra_attrs: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Build common movement attributes from header and body data.
+    
+    Args:
+        header: The message header
+        body: The message body
+        extra_attrs: Optional extra attributes to include (e.g., station_name, batch_count_seen)
+        
+    Returns:
+        Dictionary of attributes
+    """
+    # Get raw values for decoding
+    toc_id = body.get("toc_id")
+    direction_ind = body.get("direction_ind")
+    line_ind = body.get("line_ind")
+    loc_stanox = body.get("loc_stanox")
+    platform = body.get("platform")
+
+    attrs: dict[str, Any] = {
+        "msg_type": header.get("msg_type"),
+        "source_dev_id": header.get("source_dev_id"),
+        "original_data_source": header.get("original_data_source"),
+        "msg_queue_timestamp": header.get("msg_queue_timestamp"),
+        "msg_queue_time_local": _ms_to_local_iso(header.get("msg_queue_timestamp")),
+        "train_id": body.get("train_id"),
+        "toc_id": toc_id,
+        "toc_name": get_toc_name(toc_id),
+        "event_type": body.get("event_type"),
+        "planned_timestamp": body.get("planned_timestamp"),
+        "planned_time_local": _ms_to_local_iso(body.get("planned_timestamp")),
+        "actual_timestamp": body.get("actual_timestamp"),
+        "actual_time_local": _ms_to_local_iso(body.get("actual_timestamp")),
+        "timetable_variation": body.get("timetable_variation"),
+        "variation_status": body.get("variation_status"),
+        "loc_stanox": loc_stanox,
+        "location_name": get_station_name(loc_stanox),
+        "platform": platform,
+        "line_ind": line_ind,
+        "line_description": get_line_description(line_ind),
+        "direction_ind": direction_ind,
+        "direction_description": get_direction_description(direction_ind),
+        "corr_id": body.get("corr_id"),
+        "event_source": body.get("event_source"),
+        "train_terminated": body.get("train_terminated"),
+        "offroute_ind": body.get("offroute_ind"),
+        "raw": body,
+    }
+    
+    # Add any extra attributes
+    if extra_attrs:
+        attrs.update(extra_attrs)
+    
+    return attrs
+
+
 class OpenRailDataLastMovementSensor(SensorEntity):
     """Shows the last movement message seen (after optional filtering)."""
 
@@ -103,45 +158,11 @@ class OpenRailDataLastMovementSensor(SensorEntity):
         header = mv.get("header") or {}
         body = mv.get("body") or {}
 
-        # Get raw values
-        toc_id = body.get("toc_id")
-        direction_ind = body.get("direction_ind")
-        line_ind = body.get("line_ind")
-        loc_stanox = body.get("loc_stanox")
-        platform = body.get("platform")
-
-        attrs: dict[str, Any] = {
-            "msg_type": header.get("msg_type"),
-            "source_dev_id": header.get("source_dev_id"),
-            "original_data_source": header.get("original_data_source"),
-            "msg_queue_timestamp": header.get("msg_queue_timestamp"),
-            "msg_queue_time_local": _ms_to_local_iso(header.get("msg_queue_timestamp")),
-            "train_id": body.get("train_id"),
-            "toc_id": toc_id,
-            "toc_name": get_toc_name(toc_id),
-            "event_type": body.get("event_type"),
-            "planned_timestamp": body.get("planned_timestamp"),
-            "planned_time_local": _ms_to_local_iso(body.get("planned_timestamp")),
-            "actual_timestamp": body.get("actual_timestamp"),
-            "actual_time_local": _ms_to_local_iso(body.get("actual_timestamp")),
-            "timetable_variation": body.get("timetable_variation"),
-            "variation_status": body.get("variation_status"),
-            "loc_stanox": loc_stanox,
-            "location_name": get_station_name(loc_stanox),
-            "platform": platform,
-            "line_ind": line_ind,
-            "line_description": get_line_description(line_ind),
-            "direction_ind": direction_ind,
-            "direction_description": get_direction_description(direction_ind),
-            "corr_id": body.get("corr_id"),
-            "event_source": body.get("event_source"),
-            "train_terminated": body.get("train_terminated"),
-            "offroute_ind": body.get("offroute_ind"),
-            "batch_count_seen": self.hub.state.last_batch_count,
-            "raw": body,
-        }
-
-        return attrs
+        return _build_movement_attributes(
+            header, 
+            body, 
+            extra_attrs={"batch_count_seen": self.hub.state.last_batch_count}
+        )
 
 
 class OpenRailDataStationSensor(SensorEntity):
@@ -196,43 +217,11 @@ class OpenRailDataStationSensor(SensorEntity):
         header = mv.get("header") or {}
         body = mv.get("body") or {}
 
-        # Get raw values
-        toc_id = body.get("toc_id")
-        direction_ind = body.get("direction_ind")
-        line_ind = body.get("line_ind")
-        loc_stanox = body.get("loc_stanox")
-        platform = body.get("platform")
-
-        attrs: dict[str, Any] = {
-            "stanox": self._stanox,
-            "station_name": self._station_name,
-            "msg_type": header.get("msg_type"),
-            "source_dev_id": header.get("source_dev_id"),
-            "original_data_source": header.get("original_data_source"),
-            "msg_queue_timestamp": header.get("msg_queue_timestamp"),
-            "msg_queue_time_local": _ms_to_local_iso(header.get("msg_queue_timestamp")),
-            "train_id": body.get("train_id"),
-            "toc_id": toc_id,
-            "toc_name": get_toc_name(toc_id),
-            "event_type": body.get("event_type"),
-            "planned_timestamp": body.get("planned_timestamp"),
-            "planned_time_local": _ms_to_local_iso(body.get("planned_timestamp")),
-            "actual_timestamp": body.get("actual_timestamp"),
-            "actual_time_local": _ms_to_local_iso(body.get("actual_timestamp")),
-            "timetable_variation": body.get("timetable_variation"),
-            "variation_status": body.get("variation_status"),
-            "loc_stanox": loc_stanox,
-            "location_name": get_station_name(loc_stanox),
-            "platform": platform,
-            "line_ind": line_ind,
-            "line_description": get_line_description(line_ind),
-            "direction_ind": direction_ind,
-            "direction_description": get_direction_description(direction_ind),
-            "corr_id": body.get("corr_id"),
-            "event_source": body.get("event_source"),
-            "train_terminated": body.get("train_terminated"),
-            "offroute_ind": body.get("offroute_ind"),
-            "raw": body,
-        }
-
-        return attrs
+        return _build_movement_attributes(
+            header, 
+            body, 
+            extra_attrs={
+                "stanox": self._stanox,
+                "station_name": self._station_name
+            }
+        )

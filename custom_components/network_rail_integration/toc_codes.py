@@ -15,6 +15,7 @@ TOC_CODES = {
     "29": "West Midlands Trains",
     "30": "London Overground",
     "35": "Caledonian Sleeper",
+    "55": "Hull Trains",
     "60": "ScotRail",
     "61": "London North Eastern Railway",
     "64": "Merseyrail",
@@ -26,7 +27,6 @@ TOC_CODES = {
     "84": "South Western Railway",
     "86": "Heathrow Express",
     "88": "Southern/Thameslink/Gatwick Express",
-    "55": "Hull Trains",
     # Add more as needed - freight operators often use different codes
 }
 
@@ -61,7 +61,7 @@ def get_toc_name(toc_id: str | None) -> str:
         return "Unknown"
     
     toc_str = str(toc_id).strip()
-    return TOC_CODES.get(toc_str, f"TOC {toc_str}")
+    return TOC_CODES.get(toc_str, f"Operator {toc_str}")
 
 
 def get_direction_description(direction_ind: str | None) -> str:

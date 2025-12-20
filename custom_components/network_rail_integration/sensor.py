@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, DISPATCH_MOVEMENT, CONF_STATIONS, CONF_STANOX_FILTER
@@ -143,6 +144,16 @@ class OpenRailDataLastMovementSensor(SensorEntity):
         return f"{self.entry.entry_id}_last_movement"
 
     @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.entry.entry_id)},
+            name="Network Rail Integration",
+            manufacturer="Network Rail",
+            model="Train Movements Feed",
+        )
+
+    @property
     def native_value(self) -> str | None:
         mv = self.hub.state.last_movement
         if not mv:
@@ -200,6 +211,16 @@ class OpenRailDataStationSensor(SensorEntity):
     @property
     def unique_id(self) -> str:
         return f"{self.entry.entry_id}_station_{self._stanox}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.entry.entry_id)},
+            name="Network Rail Integration",
+            manufacturer="Network Rail",
+            model="Train Movements Feed",
+        )
 
     @property
     def native_value(self) -> str | None:

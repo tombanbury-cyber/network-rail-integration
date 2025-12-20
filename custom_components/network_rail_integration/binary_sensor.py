@@ -7,6 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN, DISPATCH_CONNECTED
 
@@ -46,6 +47,16 @@ class OpenRailDataConnectedBinarySensor(BinarySensorEntity):
     @property
     def unique_id(self) -> str:
         return f"{self.entry.entry_id}_connected"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.entry.entry_id)},
+            name="Network Rail Integration",
+            manufacturer="Network Rail",
+            model="Train Movements Feed",
+        )
 
     @property
     def is_on(self) -> bool | None:

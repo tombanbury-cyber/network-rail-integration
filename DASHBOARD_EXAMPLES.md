@@ -126,8 +126,6 @@ type: tile
 entity: sensor.network_rail_integration_euston
 name: Euston Platform Info
 icon: mdi:train
-features:
-  - type: target-temperature
 vertical: false
 ```
 
@@ -144,7 +142,6 @@ entities:
     entity: sensor.network_rail_integration_euston
     attribute: platform
     name: Platform
-    suffix: 
   - type: attribute
     entity: sensor.network_rail_integration_euston
     attribute: direction_description

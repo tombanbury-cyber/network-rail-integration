@@ -26,7 +26,7 @@
       },
       "search_station": {
         "title": "Search for Station",
-        "description": "Enter a station name to search for its STANOX code. You can search by partial name (e.g., 'EUSTON' or 'MANCHESTER').",
+        "description": "Enter a station name to search for its STANOX code. Station names are often abbreviated (e.g., 'MANC' for Manchester, 'PADD' for Paddington, 'EUSTON' for London Euston).",
         "data": {
           "station_query": "Station name to search",
           "selected_stanox": "Select a station from results"

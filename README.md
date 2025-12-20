@@ -30,8 +30,13 @@ STANOX codes are unique identifiers for railway locations in the UK. This integr
 
 1. In the integration options, check the **"Search for station by name"** box and save
 2. You'll be taken to the search screen
-3. Enter any part of a station name (e.g., "EUSTON", "MANCHESTER", "PADDINGTON")
-4. Select the station from the search results
+3. Enter any part of a station name - note that station names are often abbreviated:
+   - "EUSTON" finds London Euston (72410)
+   - "MANC" finds Manchester stations (e.g., MANCR PIC - 32000)
+   - "PADD" finds Paddington stations (e.g., PADDINGTN - 73000)
+   - "LEEDS" finds Leeds stations
+   - You can also enter the STANOX code directly to verify it
+4. Select the station from the search results (up to 50 matches shown)
 5. The STANOX code will be automatically set
 
 ## Logging

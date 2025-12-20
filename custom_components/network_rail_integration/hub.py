@@ -6,7 +6,7 @@ import json
 import logging
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -35,14 +35,10 @@ _LOGGER = logging.getLogger(__name__)
 class HubState:
     connected: bool = False
     last_movement: dict[str, Any] | None = None
-    last_movement_per_station: dict[str, dict[str, Any]] = None  # stanox -> movement
+    last_movement_per_station: dict[str, dict[str, Any]] = field(default_factory=dict)
     last_batch_count: int = 0
     last_error: str | None = None
     last_seen_monotonic: float | None = None
-    
-    def __post_init__(self):
-        if self.last_movement_per_station is None:
-            self.last_movement_per_station = {}
 
 
 class OpenRailDataHub:

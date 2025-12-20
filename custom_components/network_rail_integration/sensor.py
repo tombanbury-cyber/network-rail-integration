@@ -143,7 +143,7 @@ class OpenRailDataStationSensor(SensorEntity):
         self.hub = hub
         self._stanox = stanox
         self._station_name = station_name
-        self._attr_name = f"{station_name}"
+        self._attr_name = station_name
         self._unsub = None
 
     async def async_added_to_hass(self) -> None:

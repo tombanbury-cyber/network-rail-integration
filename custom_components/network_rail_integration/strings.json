@@ -16,7 +16,7 @@
     "step": {
       "init": {
         "title": "Manage Stations and Filters",
-        "description": "Configure train movement tracking options.\n\nCurrently tracking {num_stations} station(s).",
+        "description": "Configure train movement tracking options.",
         "data": {
           "action": "Choose an action"
         }

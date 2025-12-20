@@ -15,11 +15,31 @@
   "options": {
     "step": {
       "init": {
-        "title": "Options",
-        "description": "Optional filters applied to incoming Train Movements messages.",
+        "title": "Manage Stations and Filters",
+        "description": "Configure train movement tracking options.",
         "data": {
-          "stanox_filter": "Filter by STANOX code (or search below)",
-          "search_station": "Search for station by name",
+          "action": "Choose an action"
+        }
+      },
+      "add_station": {
+        "title": "Add Station",
+        "description": "Search for a station to add. Station names are often abbreviated (e.g., 'MANC' for Manchester, 'PADD' for Paddington, 'EUSTON' for London Euston).",
+        "data": {
+          "station_query": "Station name to search",
+          "selected_stanox": "Select a station to add"
+        }
+      },
+      "remove_station": {
+        "title": "Remove Station",
+        "description": "Select a station to remove from tracking.",
+        "data": {
+          "remove_stanox": "Select station to remove"
+        }
+      },
+      "configure_filters": {
+        "title": "Configure Filters",
+        "description": "These filters apply to all tracked stations.",
+        "data": {
           "toc_filter": "Filter by TOC ID (exact match)",
           "event_types": "Filter by event types (e.g. ARRIVAL, DEPARTURE)"
         }
@@ -34,7 +54,8 @@
       }
     },
     "error": {
-      "no_results": "No stations found matching your search. Try a different search term."
+      "no_results": "No stations found matching your search. Try a different search term.",
+      "station_already_exists": "This station is already being tracked."
     }
   }
 }

@@ -6,6 +6,7 @@ CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_TOPIC = "topic"
 CONF_STANOX_FILTER = "stanox_filter"
+CONF_STATIONS = "stations"  # List of station configs
 CONF_TOC_FILTER = "toc_filter"
 CONF_EVENT_TYPES = "event_types"
 CONF_FIX_DST_QUIRK = "fix_dst_quirk"

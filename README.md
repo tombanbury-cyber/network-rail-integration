@@ -6,6 +6,7 @@ Connects to Network Rail's public **STOMP** broker and subscribes to **Train Mov
 
 - **Binary sensor**: Feed connected
 - **Sensor**: Last movement (state = `event_type`, with useful attributes)
+- **Sensor (per station)**: One sensor per configured station showing movements for that specific station
 
 ## Install (HACS)
 
@@ -14,15 +15,35 @@ Connects to Network Rail's public **STOMP** broker and subscribes to **Train Mov
 3. Restart Home Assistant.
 4. Add via **Settings → Devices & services → Add integration → Network Rail Integration**.
 
-## Options
+## Configuration
 
-After adding the integration, open **Configure**:
+After adding the integration, open **Configure** to manage stations and filters:
 
-- `stanox_filter`: Only keep movements for a single STANOX (`loc_stanox`) value.
-  - You can enter a STANOX code directly (e.g., `72410` for London Euston)
-  - Or use the **"Search for station by name"** option to find the STANOX code by searching for the station name
-- `toc_filter`: Only keep movements for a single `toc_id`.
-- `event_types`: Only keep movements whose `event_type` is in the list.
+### Managing Stations
+
+You can track multiple stations simultaneously. Each configured station will have its own sensor entity showing the last train movement for that station.
+
+**To add a station:**
+1. Open the integration configuration
+2. Select "Add Station"
+3. Search for your station by name (e.g., "EUSTON", "MANC", "PADD")
+4. Select the station from the search results
+5. A new sensor entity will be created for that station
+
+**To remove a station:**
+1. Open the integration configuration
+2. Select "Remove Station"
+3. Choose the station to remove from the list
+4. The corresponding sensor entity will be removed
+
+### Global Filters
+
+These filters apply to all tracked stations:
+
+- `toc_filter`: Only keep movements for a single `toc_id`
+- `event_types`: Only keep movements whose `event_type` is in the list (e.g., ARRIVAL, DEPARTURE)
+
+Configure these via **Configure Filters (TOC, Event Types)** in the options menu.
 
 ### Finding STANOX Codes
 

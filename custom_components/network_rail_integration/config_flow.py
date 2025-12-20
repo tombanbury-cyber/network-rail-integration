@@ -13,6 +13,7 @@ from .const import (
     CONF_EVENT_TYPES,
     CONF_PASSWORD,
     CONF_STANOX_FILTER,
+    CONF_STATIONS,
     CONF_TOC_FILTER,
     CONF_TOPIC,
     CONF_USERNAME,
@@ -56,42 +57,51 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
         self._search_results: list[dict[str, str]] = []
     
     async def async_step_init(self, user_input=None) -> FlowResult:
-        """Manage the options."""
+        """Manage the options - main menu."""
         if user_input is not None:
-            # Check if user wants to search for a station
-            if user_input.get("search_station"):
-                return await self.async_step_search_station()
+            action = user_input.get("action")
+            if action == "add_station":
+                return await self.async_step_add_station()
+            elif action == "remove_station":
+                return await self.async_step_remove_station()
+            elif action == "configure_filters":
+                return await self.async_step_configure_filters()
             
-            return self.async_create_entry(title="", data=user_input)
+            return self.async_create_entry(title="", data=self.config_entry.options)
         
         opts = self.config_entry.options
+        stations = opts.get(CONF_STATIONS, [])
+        
+        # Build description showing current stations
+        description = "Configure train movement tracking options.\n\n"
+        if stations:
+            description += f"Currently tracking {len(stations)} station(s):\n"
+            for station in stations:
+                stanox = station.get("stanox", "")
+                name = station.get("name", "Unknown")
+                description += f"  • {name} ({stanox})\n"
+        else:
+            description += "No stations configured yet. Add stations to start tracking train movements."
+        
         schema = vol.Schema(
             {
-                vol.Optional(
-                    CONF_STANOX_FILTER, 
-                    default=opts.get(CONF_STANOX_FILTER, "")
-                ): str,
-                vol.Optional(
-                    "search_station",
-                    default=False,
-                ): bool,
-                vol.Optional(
-                    CONF_TOC_FILTER, 
-                    default=opts.get(CONF_TOC_FILTER, "")
-                ): str,
-                vol.Optional(
-                    CONF_EVENT_TYPES, 
-                    default=opts.get(CONF_EVENT_TYPES, [])
-                ): selector.SelectSelector(
+                vol.Required("action"): selector.SelectSelector(
                     selector.SelectSelectorConfig(
-                        options=["ARRIVAL", "DEPARTURE"],
-                        multiple=True,
-                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        options=[
+                            {"label": "Add Station", "value": "add_station"},
+                            {"label": "Remove Station", "value": "remove_station"},
+                            {"label": "Configure Filters (TOC, Event Types)", "value": "configure_filters"},
+                        ],
+                        mode=selector.SelectSelectorMode.LIST,
                     ),
                 ),
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=schema,
+            description_placeholders={"description": description}
+        )
     
     async def async_step_search_station(self, user_input=None) -> FlowResult:
         """Search for a station by name."""
@@ -148,3 +158,152 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             data_schema=schema,
             errors=errors,
         )
+    
+    async def async_step_add_station(self, user_input=None) -> FlowResult:
+        """Add a new station to track."""
+        errors = {}
+        
+        if user_input is not None:
+            # User selected a STANOX from search results
+            if "selected_stanox" in user_input and user_input["selected_stanox"]:
+                opts = self.config_entry.options.copy()
+                stations = opts.get(CONF_STATIONS, [])
+                
+                # Find the station name from search results
+                stanox = user_input["selected_stanox"]
+                station_name = "Unknown"
+                for result in self._search_results:
+                    if result["stanox"] == stanox:
+                        station_name = result["stanme"]
+                        break
+                
+                # Check if station already exists
+                if any(s.get("stanox") == stanox for s in stations):
+                    errors["selected_stanox"] = "station_already_exists"
+                else:
+                    # Add the new station
+                    stations.append({
+                        "stanox": stanox,
+                        "name": station_name,
+                    })
+                    opts[CONF_STATIONS] = stations
+                    self.hass.config_entries.async_update_entry(
+                        self.config_entry, options=opts
+                    )
+                    return self.async_create_entry(title="", data=opts)
+            
+            # User entered a search query
+            if "station_query" in user_input and user_input["station_query"]:
+                query = user_input["station_query"]
+                self._search_results = await self.hass.async_add_executor_job(
+                    search_stanox, query, 50
+                )
+                
+                if not self._search_results:
+                    errors["station_query"] = "no_results"
+        
+        # Build options from search results
+        if self._search_results:
+            options = [
+                {
+                    "label": f"{r['stanme']} ({r['stanox']})",
+                    "value": r["stanox"],
+                }
+                for r in self._search_results
+            ]
+            
+            schema = vol.Schema(
+                {
+                    vol.Optional("selected_stanox"): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=options,
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                        ),
+                    ),
+                    vol.Optional("station_query"): str,
+                }
+            )
+        else:
+            schema = vol.Schema(
+                {
+                    vol.Required("station_query"): str,
+                }
+            )
+        
+        return self.async_show_form(
+            step_id="add_station",
+            data_schema=schema,
+            errors=errors,
+        )
+    
+    async def async_step_remove_station(self, user_input=None) -> FlowResult:
+        """Remove a station from tracking."""
+        opts = self.config_entry.options.copy()
+        stations = opts.get(CONF_STATIONS, [])
+        
+        if not stations:
+            return await self.async_step_init()
+        
+        if user_input is not None:
+            if "remove_stanox" in user_input and user_input["remove_stanox"]:
+                stanox_to_remove = user_input["remove_stanox"]
+                stations = [s for s in stations if s.get("stanox") != stanox_to_remove]
+                opts[CONF_STATIONS] = stations
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, options=opts
+                )
+                return self.async_create_entry(title="", data=opts)
+        
+        # Build list of stations to remove
+        options = [
+            {
+                "label": f"{s.get('name', 'Unknown')} ({s.get('stanox', '')})",
+                "value": s.get("stanox", ""),
+            }
+            for s in stations
+        ]
+        
+        schema = vol.Schema(
+            {
+                vol.Required("remove_stanox"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    ),
+                ),
+            }
+        )
+        
+        return self.async_show_form(
+            step_id="remove_station",
+            data_schema=schema,
+        )
+    
+    async def async_step_configure_filters(self, user_input=None) -> FlowResult:
+        """Configure global filters (TOC, event types)."""
+        if user_input is not None:
+            opts = self.config_entry.options.copy()
+            opts[CONF_TOC_FILTER] = user_input.get(CONF_TOC_FILTER, "")
+            opts[CONF_EVENT_TYPES] = user_input.get(CONF_EVENT_TYPES, [])
+            return self.async_create_entry(title="", data=opts)
+        
+        opts = self.config_entry.options
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_TOC_FILTER, 
+                    default=opts.get(CONF_TOC_FILTER, "")
+                ): str,
+                vol.Optional(
+                    CONF_EVENT_TYPES, 
+                    default=opts.get(CONF_EVENT_TYPES, [])
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=["ARRIVAL", "DEPARTURE"],
+                        multiple=True,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    ),
+                ),
+            }
+        )
+        return self.async_show_form(step_id="configure_filters", data_schema=schema)

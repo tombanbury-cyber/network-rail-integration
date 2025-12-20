@@ -10,10 +10,12 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_ENABLE_TD,
     CONF_EVENT_TYPES,
     CONF_PASSWORD,
     CONF_STANOX_FILTER,
     CONF_STATIONS,
+    CONF_TD_AREAS,
     CONF_TOC_FILTER,
     CONF_TOPIC,
     CONF_USERNAME,
@@ -66,6 +68,8 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                 return await self.async_step_remove_station()
             elif action == "configure_filters":
                 return await self.async_step_configure_filters()
+            elif action == "configure_train_describer":
+                return await self.async_step_configure_train_describer()
             
             return self.async_create_entry(title="", data=self.config_entry.options)
         
@@ -83,6 +87,13 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
         else:
             description += "No stations configured yet. Add stations to start tracking train movements."
         
+        # Add TD status if enabled
+        if opts.get(CONF_ENABLE_TD, False):
+            td_areas = opts.get(CONF_TD_AREAS, [])
+            description += f"\n\nTrain Describer: Enabled"
+            if td_areas:
+                description += f" (tracking {len(td_areas)} area(s))"
+        
         schema = vol.Schema(
             {
                 vol.Required("action"): selector.SelectSelector(
@@ -91,6 +102,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                             {"label": "Add Station", "value": "add_station"},
                             {"label": "Remove Station", "value": "remove_station"},
                             {"label": "Configure Filters (TOC, Event Types)", "value": "configure_filters"},
+                            {"label": "Configure Train Describer", "value": "configure_train_describer"},
                         ],
                         mode=selector.SelectSelectorMode.LIST,
                     ),
@@ -307,3 +319,45 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             }
         )
         return self.async_show_form(step_id="configure_filters", data_schema=schema)
+    
+    async def async_step_configure_train_describer(self, user_input=None) -> FlowResult:
+        """Configure Train Describer feed options."""
+        if user_input is not None:
+            opts = self.config_entry.options.copy()
+            opts[CONF_ENABLE_TD] = user_input.get(CONF_ENABLE_TD, False)
+            
+            # Parse comma-separated TD areas
+            td_areas_str = user_input.get(CONF_TD_AREAS, "")
+            if td_areas_str:
+                td_areas = [area.strip().upper() for area in td_areas_str.split(",") if area.strip()]
+            else:
+                td_areas = []
+            opts[CONF_TD_AREAS] = td_areas
+            
+            return self.async_create_entry(title="", data=opts)
+        
+        opts = self.config_entry.options
+        # Convert list of areas back to comma-separated string for display
+        td_areas_list = opts.get(CONF_TD_AREAS, [])
+        td_areas_str = ", ".join(td_areas_list) if td_areas_list else ""
+        
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_ENABLE_TD,
+                    default=opts.get(CONF_ENABLE_TD, False)
+                ): bool,
+                vol.Optional(
+                    CONF_TD_AREAS,
+                    default=td_areas_str,
+                    description="Comma-separated list of TD area IDs to track (e.g., 'SK, G1, RW'). Leave empty to track all areas."
+                ): str,
+            }
+        )
+        return self.async_show_form(
+            step_id="configure_train_describer",
+            data_schema=schema,
+            description_placeholders={
+                "description": "Enable Train Describer feed to track train positions through signalling berths. This is useful for creating network diagrams.\n\nLeave TD areas empty to receive all messages, or specify specific area IDs (e.g., 'SK', 'G1', 'RW') to filter."
+            }
+        )

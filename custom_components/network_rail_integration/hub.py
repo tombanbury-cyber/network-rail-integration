@@ -14,19 +14,24 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
+    CONF_ENABLE_TD,
     CONF_EVENT_TYPES,
     CONF_PASSWORD,
     CONF_STANOX_FILTER,
     CONF_STATIONS,
+    CONF_TD_AREAS,
     CONF_TOC_FILTER,
     CONF_TOPIC,
     CONF_USERNAME,
+    DEFAULT_TD_TOPIC,
     DEFAULT_TOPIC,
     DISPATCH_CONNECTED,
     DISPATCH_MOVEMENT,
+    DISPATCH_TD,
     NR_HOST,
     NR_PORT,
 )
+from .td_parser import BerthState, parse_td_message, apply_td_filters
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,6 +44,10 @@ class HubState:
     last_batch_count: int = 0
     last_error: str | None = None
     last_seen_monotonic: float | None = None
+    # Train Describer state
+    last_td_message: dict[str, Any] | None = None
+    berth_state: BerthState = field(default_factory=BerthState)
+    td_message_count: int = 0
 
 
 class OpenRailDataHub:
@@ -88,6 +97,8 @@ class OpenRailDataHub:
                 CONF_STATIONS: opt.get(CONF_STATIONS, []),
                 CONF_TOC_FILTER: opt.get(CONF_TOC_FILTER, ""),
                 CONF_EVENT_TYPES: opt.get(CONF_EVENT_TYPES, []),
+                CONF_ENABLE_TD: opt.get(CONF_ENABLE_TD, False),
+                CONF_TD_AREAS: opt.get(CONF_TD_AREAS, []),
             }
 
         reconnect_delay = 5
@@ -102,6 +113,7 @@ class OpenRailDataHub:
                 _LOGGER.info("Connected to STOMP broker; subscribing to %s", dest)
                 self._set_connected(True)
                 try:
+                    # Subscribe to primary topic (train movements)
                     self._conn_ref.subscribe(
                         destination=dest, 
                         id=1, 
@@ -110,6 +122,20 @@ class OpenRailDataHub:
                             "activemq.subscriptionName": f"network_rail_integration-{topic}",
                         },
                     )
+                    
+                    # Subscribe to Train Describer if enabled
+                    options = _read_options()
+                    if options.get(CONF_ENABLE_TD, False):
+                        td_dest = f"/topic/{DEFAULT_TD_TOPIC}"
+                        _LOGGER.info("Subscribing to Train Describer feed: %s", td_dest)
+                        self._conn_ref.subscribe(
+                            destination=td_dest,
+                            id=2,
+                            ack="auto",
+                            headers={
+                                "activemq.subscriptionName": f"network_rail_integration-{DEFAULT_TD_TOPIC}",
+                            },
+                        )
                 except Exception as exc:
                     _LOGGER.exception("Subscribe failed: %s", exc)
 
@@ -132,7 +158,12 @@ class OpenRailDataHub:
                     _LOGGER.debug("Non-JSON message received (ignored)")
                     return
 
-                # Feed is a JSON list (may be empty)
+                # Check if this is a Train Describer message (dict with *_MSG keys)
+                if isinstance(payload, dict):
+                    self._handle_td_message(payload)
+                    return
+
+                # Feed is a JSON list (may be empty) for train movements
                 if not isinstance(payload, list) or not payload:
                     self._mark_seen(0)
                     return
@@ -187,6 +218,22 @@ class OpenRailDataHub:
 
                 self._publish_last_movement(last, kept, station_movements)
 
+            def _handle_td_message(self, message: dict[str, Any]) -> None:
+                """Handle a Train Describer message."""
+                parsed = parse_td_message(message)
+                if not parsed:
+                    return
+                
+                options = _read_options()
+                
+                # Apply filters
+                td_areas = set(options.get(CONF_TD_AREAS, []))
+                if not apply_td_filters(parsed, area_filter=td_areas if td_areas else None):
+                    return
+                
+                # Publish to HA
+                self._publish_td_message(parsed)
+
             def _mark_seen(self, batch_count: int) -> None:
                 hass_loop = self._hass.loop
                 hass_loop.call_soon_threadsafe(self._update_seen, batch_count)
@@ -198,6 +245,11 @@ class OpenRailDataHub:
             def _publish_last_movement(self, movement: dict[str, Any], kept: int, station_movements: dict[str, dict[str, Any]]) -> None:
                 hass_loop = self._hass.loop
                 hass_loop.call_soon_threadsafe(self._update_movement, movement, kept, station_movements)
+
+            def _publish_td_message(self, parsed_message: dict[str, Any]) -> None:
+                """Publish a Train Describer message to Home Assistant."""
+                hass_loop = self._hass.loop
+                hass_loop.call_soon_threadsafe(self._update_td_message, parsed_message)
 
             @callback
             def _update_connected(self, is_connected: bool) -> None:
@@ -220,6 +272,25 @@ class OpenRailDataHub:
                 # Dispatch per-station movement events
                 for stanox in station_movements:
                     async_dispatcher_send(self._hass, f"{DISPATCH_MOVEMENT}_{stanox}")
+
+            @callback
+            def _update_td_message(self, parsed_message: dict[str, Any]) -> None:
+                """Update Train Describer state and dispatch events."""
+                self._hub.state.last_td_message = parsed_message
+                self._hub.state.td_message_count += 1
+                
+                # Update berth state
+                msg_type = parsed_message.get("msg_type")
+                if msg_type in ("CA", "CB", "CC"):
+                    self._hub.state.berth_state.update(parsed_message)
+                
+                # Dispatch TD event
+                async_dispatcher_send(self._hass, DISPATCH_TD, parsed_message)
+                
+                # Dispatch area-specific event
+                area_id = parsed_message.get("area_id")
+                if area_id:
+                    async_dispatcher_send(self._hass, f"{DISPATCH_TD}_{area_id}", parsed_message)
 
         conn = None
         while not self._stop_evt.is_set():

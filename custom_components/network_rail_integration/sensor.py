@@ -1,4 +1,4 @@
-"""Sensors for OpenRailData (Train Movements)."""
+"""Sensors for OpenRailData (Train Movements and Train Describer)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,15 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, DISPATCH_MOVEMENT, CONF_STATIONS, CONF_STANOX_FILTER
+from .const import (
+    DOMAIN, 
+    DISPATCH_MOVEMENT, 
+    DISPATCH_TD,
+    CONF_STATIONS, 
+    CONF_STANOX_FILTER,
+    CONF_ENABLE_TD,
+    CONF_TD_AREAS,
+)
 from .toc_codes import get_toc_name, get_direction_description, get_line_description
 from .stanox_utils import get_station_name
 
@@ -45,6 +53,15 @@ async def async_setup_entry(
     
     # Always add the global last movement sensor for backward compatibility
     entities.append(OpenRailDataLastMovementSensor(hass, entry, hub))
+    
+    # Add Train Describer sensors if enabled
+    if options.get(CONF_ENABLE_TD, False):
+        entities.append(TrainDescriberStatusSensor(hass, entry, hub))
+        
+        # Create sensors for specific TD areas if configured
+        td_areas = options.get(CONF_TD_AREAS, [])
+        for area_id in td_areas:
+            entities.append(TrainDescriberAreaSensor(hass, entry, hub, area_id))
     
     async_add_entities(entities, True)
 
@@ -246,3 +263,196 @@ class OpenRailDataStationSensor(SensorEntity):
                 "station_name": self._station_name
             }
         )
+
+
+class TrainDescriberStatusSensor(SensorEntity):
+    """Sensor showing Train Describer feed status."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Train Describer Status"
+    _attr_icon = "mdi:train-car-passenger-door"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, hub) -> None:
+        self.hass = hass
+        self.entry = entry
+        self.hub = hub
+        self._unsub = None
+
+    async def async_added_to_hass(self) -> None:
+        self._unsub = async_dispatcher_connect(self.hass, DISPATCH_TD, self._handle_update)
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub:
+            self._unsub()
+            self._unsub = None
+
+    @callback
+    def _handle_update(self, parsed_message: dict[str, Any]) -> None:
+        self.async_write_ha_state()
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self.entry.entry_id}_td_status"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.entry.entry_id)},
+            name="Network Rail Integration",
+            manufacturer="Network Rail",
+            model="Train Describer Feed",
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        msg = self.hub.state.last_td_message
+        if not msg:
+            return "No messages"
+        msg_type = msg.get("msg_type", "Unknown")
+        return f"{msg_type}"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        msg = self.hub.state.last_td_message
+        if not msg:
+            return {
+                "message_count": self.hub.state.td_message_count,
+                "berth_count": len(self.hub.state.berth_state.get_all_berths()),
+            }
+        
+        attrs = {
+            "msg_type": msg.get("msg_type"),
+            "area_id": msg.get("area_id"),
+            "time": msg.get("time"),
+            "time_local": _ms_to_local_iso(msg.get("time")),
+            "message_count": self.hub.state.td_message_count,
+            "berth_count": len(self.hub.state.berth_state.get_all_berths()),
+        }
+        
+        # Add type-specific attributes
+        msg_type = msg.get("msg_type")
+        if msg_type == "CA":
+            attrs.update({
+                "from_berth": msg.get("from_berth"),
+                "to_berth": msg.get("to_berth"),
+                "description": msg.get("description"),
+            })
+        elif msg_type == "CB":
+            attrs.update({
+                "from_berth": msg.get("from_berth"),
+                "description": msg.get("description"),
+            })
+        elif msg_type == "CC":
+            attrs.update({
+                "to_berth": msg.get("to_berth"),
+                "description": msg.get("description"),
+            })
+        elif msg_type == "CT":
+            attrs.update({
+                "report_time": msg.get("report_time"),
+            })
+        elif msg_type in ("SF", "SG", "SH"):
+            attrs.update({
+                "address": msg.get("address"),
+                "data": msg.get("data"),
+            })
+        
+        return attrs
+
+
+class TrainDescriberAreaSensor(SensorEntity):
+    """Sensor showing Train Describer data for a specific area."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:train-car-passenger-door"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, hub, area_id: str) -> None:
+        self.hass = hass
+        self.entry = entry
+        self.hub = hub
+        self._area_id = area_id
+        self._attr_name = f"TD Area {area_id}"
+        self._unsub = None
+        self._last_message: dict[str, Any] | None = None
+
+    async def async_added_to_hass(self) -> None:
+        # Subscribe to area-specific dispatcher signal
+        self._unsub = async_dispatcher_connect(
+            self.hass, 
+            f"{DISPATCH_TD}_{self._area_id}", 
+            self._handle_update
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub:
+            self._unsub()
+            self._unsub = None
+
+    @callback
+    def _handle_update(self, parsed_message: dict[str, Any]) -> None:
+        self._last_message = parsed_message
+        self.async_write_ha_state()
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self.entry.entry_id}_td_area_{self._area_id}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.entry.entry_id)},
+            name="Network Rail Integration",
+            manufacturer="Network Rail",
+            model="Train Describer Feed",
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        if not self._last_message:
+            return "No messages"
+        msg_type = self._last_message.get("msg_type", "Unknown")
+        return f"{msg_type}"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        area_berths = self.hub.state.berth_state.get_area_berths(self._area_id)
+        
+        attrs = {
+            "area_id": self._area_id,
+            "berth_count": len(area_berths),
+            "occupied_berths": {},
+        }
+        
+        # Add current berth occupancy
+        for berth_id, state in area_berths.items():
+            attrs["occupied_berths"][berth_id] = state.get("description", "")
+        
+        if self._last_message:
+            attrs.update({
+                "last_msg_type": self._last_message.get("msg_type"),
+                "last_time": self._last_message.get("time"),
+                "last_time_local": _ms_to_local_iso(self._last_message.get("time")),
+            })
+            
+            # Add type-specific attributes
+            msg_type = self._last_message.get("msg_type")
+            if msg_type == "CA":
+                attrs.update({
+                    "last_from_berth": self._last_message.get("from_berth"),
+                    "last_to_berth": self._last_message.get("to_berth"),
+                    "last_description": self._last_message.get("description"),
+                })
+            elif msg_type == "CB":
+                attrs.update({
+                    "last_from_berth": self._last_message.get("from_berth"),
+                    "last_description": self._last_message.get("description"),
+                })
+            elif msg_type == "CC":
+                attrs.update({
+                    "last_to_berth": self._last_message.get("to_berth"),
+                    "last_description": self._last_message.get("description"),
+                })
+        
+        return attrs

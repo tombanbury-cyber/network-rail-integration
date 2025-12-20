@@ -44,6 +44,14 @@
           "event_types": "Filter by event types (e.g. ARRIVAL, DEPARTURE)"
         }
       },
+      "configure_train_describer": {
+        "title": "Configure Train Describer",
+        "description": "Enable Train Describer feed to track train positions through signalling berths. This is useful for creating network diagrams.\n\nLeave TD areas empty to receive all messages, or specify specific area IDs (e.g., 'SK', 'G1', 'RW') to filter.",
+        "data": {
+          "enable_td": "Enable Train Describer Feed",
+          "td_areas": "TD Area IDs (comma-separated, e.g., 'SK, G1, RW')"
+        }
+      },
       "search_station": {
         "title": "Search for Station",
         "description": "Enter a station name to search for its STANOX code. Station names are often abbreviated (e.g., 'MANC' for Manchester, 'PADD' for Paddington, 'EUSTON' for London Euston).",

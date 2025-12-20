@@ -8,6 +8,39 @@ Connects to Network Rail's public **STOMP** broker and subscribes to **Train Mov
 - **Sensor**: Last movement (state = `event_type`, with useful attributes)
 - **Sensor (per station)**: One sensor per configured station showing movements for that specific station
 
+### Available Attributes
+
+Each sensor exposes detailed attributes about train movements that can be displayed on your dashboard:
+
+**Platform and Direction Information:**
+- `platform`: The platform number where the train is arriving/departing (e.g., "3", "4A")
+- `direction_ind`: Raw direction code (U/D)
+- `direction_description`: Human-readable direction (e.g., "UP (towards London)", "DOWN (away from London)")
+
+**Train Operating Company:**
+- `toc_id`: Raw TOC code (e.g., "79")
+- `toc_name`: Train operator name (e.g., "c2c", "Great Western Railway", "ScotRail")
+
+**Location Information:**
+- `loc_stanox`: Station STANOX code
+- `location_name`: Station name (e.g., "EUSTON", "MANCR PIC")
+- `station_name`: Configured station name (station sensors only)
+
+**Timing Information:**
+- `event_type`: ARRIVAL, DEPARTURE, or PASS
+- `planned_time_local`: Scheduled time in local timezone
+- `actual_time_local`: Actual time in local timezone
+- `timetable_variation`: Minutes early/late
+- `variation_status`: ON TIME, EARLY, LATE, or OFF ROUTE
+
+**Additional Details:**
+- `train_id`: Unique train identifier
+- `line_ind`: Raw line code
+- `line_description`: Line description (e.g., "Fast line", "Slow line")
+- `train_terminated`: Whether the train terminated at this location
+
+These attributes allow you to create rich dashboard displays showing which trains are arriving at which platforms and in which direction they're traveling.
+
 ## Install (HACS)
 
 1. Add this repository in HACS as a **Custom repository** (category: Integration).

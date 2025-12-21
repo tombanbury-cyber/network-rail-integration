@@ -69,8 +69,6 @@ async def async_setup_entry(
     entities.append(debug_sensor)
     
     # Store debug sensor reference in hass.data for access by the hub
-    if DOMAIN not in hass.data:
-        hass.data[DOMAIN] = {}
     hass.data[DOMAIN][f"{entry.entry_id}_debug_sensor"] = debug_sensor
     
     async_add_entities(entities, True)

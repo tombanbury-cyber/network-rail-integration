@@ -88,53 +88,44 @@ class DebugLogger:
         """Set or update the debug sensor."""
         self._sensor = sensor
 
+    def _format_message(self, message: str, *args) -> str:
+        """Format log message with arguments, handling errors gracefully."""
+        try:
+            return message % args if args else message
+        except (TypeError, ValueError):
+            return message
+
     def debug(self, message: str, *args, **kwargs) -> None:
         """Log a debug message."""
         self._logger.debug(message, *args, **kwargs)
         if self._sensor:
-            # Format message if args are provided
-            try:
-                formatted_message = message % args if args else message
-            except (TypeError, ValueError):
-                formatted_message = message
+            formatted_message = self._format_message(message, *args)
             self._sensor.add_log_entry("DEBUG", formatted_message)
 
     def info(self, message: str, *args, **kwargs) -> None:
         """Log an info message."""
         self._logger.info(message, *args, **kwargs)
         if self._sensor:
-            try:
-                formatted_message = message % args if args else message
-            except (TypeError, ValueError):
-                formatted_message = message
+            formatted_message = self._format_message(message, *args)
             self._sensor.add_log_entry("INFO", formatted_message)
 
     def warning(self, message: str, *args, **kwargs) -> None:
         """Log a warning message."""
         self._logger.warning(message, *args, **kwargs)
         if self._sensor:
-            try:
-                formatted_message = message % args if args else message
-            except (TypeError, ValueError):
-                formatted_message = message
+            formatted_message = self._format_message(message, *args)
             self._sensor.add_log_entry("WARNING", formatted_message)
 
     def error(self, message: str, *args, **kwargs) -> None:
         """Log an error message."""
         self._logger.error(message, *args, **kwargs)
         if self._sensor:
-            try:
-                formatted_message = message % args if args else message
-            except (TypeError, ValueError):
-                formatted_message = message
+            formatted_message = self._format_message(message, *args)
             self._sensor.add_log_entry("ERROR", formatted_message)
 
     def exception(self, message: str, *args, **kwargs) -> None:
         """Log an exception message."""
         self._logger.exception(message, *args, **kwargs)
         if self._sensor:
-            try:
-                formatted_message = message % args if args else message
-            except (TypeError, ValueError):
-                formatted_message = message
+            formatted_message = self._format_message(message, *args)
             self._sensor.add_log_entry("ERROR", formatted_message)

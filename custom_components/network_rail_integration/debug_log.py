@@ -41,8 +41,8 @@ class DebugLogSensor(SensorEntity):
             "message": message,
         }
         self._log_entries.append(entry)
-        # Schedule state update
-        self.schedule_update_ha_state()
+        # Schedule state update safely from any thread
+        self.hass.loop.call_soon_threadsafe(self.schedule_update_ha_state)
 
     @property
     def unique_id(self) -> str:
@@ -90,9 +90,13 @@ class DebugLogger:
 
     def _format_message(self, message: str, *args) -> str:
         """Format log message with arguments, handling errors gracefully."""
+        if not args:
+            return message
         try:
-            return message % args if args else message
-        except (TypeError, ValueError):
+            return message % args
+        except (TypeError, ValueError) as exc:
+            # Log formatting error and return original message
+            _LOGGER.debug("Failed to format log message '%s' with args %s: %s", message, args, exc)
             return message
 
     def debug(self, message: str, *args, **kwargs) -> None:

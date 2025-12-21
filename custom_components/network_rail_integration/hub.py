@@ -236,7 +236,8 @@ class OpenRailDataHub:
                 """Handle a Train Describer message.
                 
                 Returns:
-                    True if message was handled as a TD message, False otherwise
+                    True if message was successfully handled as a TD message (including 
+                    filtered messages), False if the message is not a valid TD message format
                 """
                 # Log that we received a potential TD message
                 self._hub.debug_logger.debug("Received potential TD message: %s", list(message.keys()))
@@ -270,7 +271,7 @@ class OpenRailDataHub:
                         parsed.get("area_id"),
                         td_areas
                     )
-                    # Still mark as handled since it was a valid TD message, just filtered
+                    # Mark as handled since it was a valid TD message structure, even though filtered by area criteria
                     return True
                 
                 self._hub.debug_logger.info(

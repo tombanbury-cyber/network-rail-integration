@@ -170,8 +170,12 @@ class OpenRailDataHub:
                 # Check if this is a Train Describer message (dict with *_MSG keys)
                 if isinstance(payload, dict):
                     self._hub.debug_logger.debug("Received dict payload, checking if TD message")
-                    self._handle_td_message(payload)
-                    return
+                    # Try to handle as TD message
+                    if self._handle_td_message(payload):
+                        # Successfully handled as TD message
+                        return
+                    # Not a valid TD message, continue to process as other message type
+                    self._hub.debug_logger.debug("Dict payload was not a TD message, continuing processing")
 
                 # Feed is a JSON list (may be empty) for train movements
                 if not isinstance(payload, list) or not payload:
@@ -228,15 +232,19 @@ class OpenRailDataHub:
 
                 self._publish_last_movement(last, kept, station_movements)
 
-            def _handle_td_message(self, message: dict[str, Any]) -> None:
-                """Handle a Train Describer message."""
+            def _handle_td_message(self, message: dict[str, Any]) -> bool:
+                """Handle a Train Describer message.
+                
+                Returns:
+                    True if message was handled as a TD message, False otherwise
+                """
                 # Log that we received a potential TD message
                 self._hub.debug_logger.debug("Received potential TD message: %s", list(message.keys()))
                 
                 parsed = parse_td_message(message)
                 if not parsed:
                     self._hub.debug_logger.debug("Message was not a valid TD message")
-                    return
+                    return False
                 
                 self._hub.debug_logger.debug(
                     "Parsed TD message: type=%s, area=%s", 
@@ -262,7 +270,8 @@ class OpenRailDataHub:
                         parsed.get("area_id"),
                         td_areas
                     )
-                    return
+                    # Still mark as handled since it was a valid TD message, just filtered
+                    return True
                 
                 self._hub.debug_logger.info(
                     "Publishing TD message: type=%s, area=%s",
@@ -272,6 +281,7 @@ class OpenRailDataHub:
                 
                 # Publish to HA
                 self._publish_td_message(parsed)
+                return True
 
             def _mark_seen(self, batch_count: int) -> None:
                 hass_loop = self._hass.loop

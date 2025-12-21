@@ -35,6 +35,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     debug_sensor = hass.data[DOMAIN].get(f"{entry.entry_id}_debug_sensor")
     if debug_sensor:
         debug_logger.set_sensor(debug_sensor)
+        debug_logger.info("Debug sensor connected to logger")
     
     # Register update listener to reload when options change
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))

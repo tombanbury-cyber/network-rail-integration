@@ -58,6 +58,7 @@ async def async_setup_entry(
     # Add Train Describer sensors if enabled
     if options.get(CONF_ENABLE_TD, False):
         entities.append(TrainDescriberStatusSensor(hass, entry, hub))
+        entities.append(TrainDescriberRawJsonSensor(hass, entry, hub))
         
         # Create sensors for specific TD areas if configured
         td_areas = options.get(CONF_TD_AREAS, [])
@@ -467,3 +468,71 @@ class TrainDescriberAreaSensor(SensorEntity):
                 })
         
         return attrs
+
+
+class TrainDescriberRawJsonSensor(SensorEntity):
+    """Sensor showing raw JSON from Train Describer feed."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Train Describer Raw JSON"
+    _attr_icon = "mdi:code-json"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, hub) -> None:
+        self.hass = hass
+        self.entry = entry
+        self.hub = hub
+        self._unsub = None
+
+    async def async_added_to_hass(self) -> None:
+        self._unsub = async_dispatcher_connect(self.hass, DISPATCH_TD, self._handle_update)
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub:
+            self._unsub()
+            self._unsub = None
+
+    @callback
+    def _handle_update(self, parsed_message: dict[str, Any]) -> None:
+        self.async_write_ha_state()
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self.entry.entry_id}_td_raw_json"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.entry.entry_id)},
+            name="Network Rail Integration",
+            manufacturer="Network Rail",
+            model="Train Describer Feed",
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        msg = self.hub.state.last_td_message
+        if not msg:
+            return "No messages"
+        return f"{msg.get('msg_type', 'Unknown')} - {msg.get('area_id', 'Unknown')}"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        msg = self.hub.state.last_td_message
+        if not msg:
+            return {
+                "raw_json": None,
+                "message_count": self.hub.state.td_message_count,
+            }
+        
+        # Get the raw field from the parsed message
+        raw = msg.get("raw", {})
+        
+        return {
+            "raw_json": raw,
+            "message_count": self.hub.state.td_message_count,
+            "msg_type": msg.get("msg_type"),
+            "area_id": msg.get("area_id"),
+            "time": msg.get("time"),
+            "time_local": _ms_to_local_iso(msg.get("time")),
+        }

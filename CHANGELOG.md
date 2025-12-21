@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2] - 2025-12-21
+
+### Fixed
+- **Train Movement Data Reception**: Fixed issue where train movement data was not being processed when Train Describer feed was enabled
+  - Previously, when a dict payload was received, the code assumed it was always a Train Describer message
+  - If the dict was not a valid TD message, the handler would return without processing other message types
+  - Now, if a dict payload is not a valid TD message, processing continues to handle it as other message types
+  - This ensures train movement messages in dict format are not incorrectly filtered out
+- Improved message handling logic to properly distinguish between TD messages and other dict payloads
+
 ## [1.6.0] - 2025-12-21
 
 ### Added

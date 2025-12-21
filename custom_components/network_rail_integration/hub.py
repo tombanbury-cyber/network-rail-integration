@@ -53,10 +53,11 @@ class HubState:
 class OpenRailDataHub:
     """Owns the background STOMP client thread."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, debug_logger=None) -> None:
         self.hass = hass
         self.entry = entry
         self.state = HubState()
+        self.debug_logger = debug_logger if debug_logger else _LOGGER
 
         self._stop_evt = threading.Event()
         self._thread: threading.Thread | None = None
@@ -110,7 +111,7 @@ class OpenRailDataHub:
                 self._conn_ref = conn_ref
 
             def on_connected(self, frame):  # noqa: N802
-                _LOGGER.info("Connected to STOMP broker; subscribing to %s", dest)
+                self._hub.debug_logger.info("Connected to STOMP broker; subscribing to %s", dest)
                 self._set_connected(True)
                 try:
                     # Subscribe to primary topic (train movements)
@@ -127,7 +128,7 @@ class OpenRailDataHub:
                     options = _read_options()
                     if options.get(CONF_ENABLE_TD, False):
                         td_dest = f"/topic/{DEFAULT_TD_TOPIC}"
-                        _LOGGER.info("Subscribing to Train Describer feed: %s", td_dest)
+                        self._hub.debug_logger.info("Subscribing to Train Describer feed: %s", td_dest)
                         self._conn_ref.subscribe(
                             destination=td_dest,
                             id=2,
@@ -137,18 +138,18 @@ class OpenRailDataHub:
                             },
                         )
                 except Exception as exc:
-                    _LOGGER.exception("Subscribe failed: %s", exc)
+                    self._hub.debug_logger.error("Subscribe failed: %s", exc)
 
             def on_disconnected(self):  # noqa: N802
-                _LOGGER.warning("Disconnected from STOMP broker")
+                self._hub.debug_logger.warning("Disconnected from STOMP broker")
                 self._set_connected(False)
 
             def on_heartbeat_timeout(self):  # noqa: N802
-                _LOGGER.warning("STOMP heartbeat timeout")
+                self._hub.debug_logger.warning("STOMP heartbeat timeout")
                 self._set_connected(False)
 
             def on_error(self, frame):  # noqa: N802
-                _LOGGER.error("STOMP error frame: %s", getattr(frame, "body", frame))
+                self._hub.debug_logger.error("STOMP error frame: %s", getattr(frame, "body", frame))
 
             def on_message(self, frame):  # noqa: N802
                 body = getattr(frame, "body", "")
@@ -303,7 +304,7 @@ class OpenRailDataHub:
                 listener = _Listener(self, conn)
                 conn.set_listener("", listener)
 
-                _LOGGER.info("Connecting to %s:%s ...", NR_HOST, NR_PORT)
+                self.debug_logger.info("Connecting to %s:%s ...", NR_HOST, NR_PORT)
                 conn.connect(
                     username=username, 
                     passcode=password, 
@@ -318,7 +319,7 @@ class OpenRailDataHub:
                     time.sleep(0.5)
 
             except Exception as exc:
-                _LOGGER.warning("STOMP connection error: %s", exc)
+                self.debug_logger.warning("STOMP connection error: %s", exc)
                 self.state.connected = False
                 self.state.last_error = str(exc)
                 self.hass.loop.call_soon_threadsafe(

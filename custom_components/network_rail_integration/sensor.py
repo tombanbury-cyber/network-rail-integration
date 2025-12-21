@@ -24,6 +24,7 @@ from .const import (
 )
 from .toc_codes import get_toc_name, get_direction_description, get_line_description
 from .stanox_utils import get_station_name
+from .debug_log import DebugLogSensor
 
 
 async def async_setup_entry(
@@ -62,6 +63,13 @@ async def async_setup_entry(
         td_areas = options.get(CONF_TD_AREAS, [])
         for area_id in td_areas:
             entities.append(TrainDescriberAreaSensor(hass, entry, hub, area_id))
+    
+    # Add debug log sensor
+    debug_sensor = DebugLogSensor(hass, entry)
+    entities.append(debug_sensor)
+    
+    # Store debug sensor reference in hass.data for access by the hub
+    hass.data[DOMAIN][f"{entry.entry_id}_debug_sensor"] = debug_sensor
     
     async_add_entities(entities, True)
 

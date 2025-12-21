@@ -25,6 +25,9 @@ The integration creates the following entities:
 - **Sensor**: `sensor.network_rail_integration_train_describer_status` - Overall TD status and statistics
 - **Sensor (per area)**: `sensor.network_rail_integration_td_area_<area_id>` - Berth occupancy for specific TD areas
 
+### Debug and Diagnostics
+- **Sensor**: `sensor.network_rail_integration_debug_log` - Recent log messages for debugging (shows last 50 entries)
+
 See [TRAIN_DESCRIBER.md](TRAIN_DESCRIBER.md) for more information about the Train Describer feed.
 
 ### Entity Naming
@@ -137,9 +140,33 @@ STANOX codes are unique identifiers for railway locations in the UK. This integr
 
 ## Logging
 
+To enable detailed logging in your Home Assistant logs:
+
 ```yaml
 logger:
   default: info
   logs:
     network_rail_integration: debug
 ```
+
+## Debug Log Sensor
+
+The integration includes a debug log sensor (`sensor.network_rail_integration_debug_log`) that displays recent log messages directly in the Home Assistant UI. This makes it easier to debug connection issues and monitor the integration's activity without checking log files.
+
+**Features:**
+- Shows the most recent log message as the sensor state
+- Stores the last 50 log entries (accessible via entity attributes)
+- Includes timestamp, log level (DEBUG, INFO, WARNING, ERROR), and message for each entry
+- Automatically captures key events like connection status, subscription updates, and errors
+
+**Viewing the Debug Log:**
+1. Go to **Settings → Devices & services → Network Rail Integration**
+2. Click on the device to view its entities
+3. Find `sensor.network_rail_integration_debug_log`
+4. Click on the sensor to view all recent log entries in the attributes
+
+This sensor is particularly useful for:
+- Monitoring connection status to Network Rail feeds
+- Debugging subscription issues
+- Tracking when the integration receives data
+- Identifying errors without needing SSH or file access

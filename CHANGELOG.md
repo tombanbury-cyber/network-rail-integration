@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2025-12-21
+
+### Added
+- **Debug Log Sensor**: New sensor entity that displays recent log messages within the Home Assistant UI
+  - Shows the last 50 log entries in a circular buffer
+  - Displays most recent log entry as the sensor state
+  - Exposes all log entries via entity attributes with timestamp, level, and message
+  - Makes debugging connection and subscription issues easier without checking log files
+- New `debug_log.py` module with:
+  - `DebugLogSensor` entity class for displaying logs in the UI
+  - `DebugLogger` helper class that wraps the standard Python logger
+  - Support for DEBUG, INFO, WARNING, and ERROR log levels
+- Enhanced logging throughout the integration with dual output to both standard logs and debug sensor
+- Updated README with Debug Log Sensor documentation section
+
+### Changed
+- Updated key logging calls in `hub.py` to use the new debug logger
+- Improved integration initialization to connect debug sensor after platform setup
+
 ## [1.5.0] - 2024-12-20
 
 ### Added

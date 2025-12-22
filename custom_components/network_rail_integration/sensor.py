@@ -21,9 +21,12 @@ from .const import (
     CONF_STANOX_FILTER,
     CONF_ENABLE_TD,
     CONF_TD_AREAS,
+    CONF_TD_PLATFORMS,
+    CONF_TD_EVENT_HISTORY_SIZE,
     CONF_DIAGRAM_ENABLED,
     CONF_DIAGRAM_STANOX,
     CONF_DIAGRAM_RANGE,
+    DEFAULT_TD_EVENT_HISTORY_SIZE,
 )
 from .toc_codes import get_toc_name, get_direction_description, get_line_description
 from .stanox_utils import get_station_name
@@ -60,6 +63,34 @@ async def async_setup_entry(
     
     # Add Train Describer sensors if enabled
     if options.get(CONF_ENABLE_TD, False):
+        # Initialize event history size in berth state
+        event_history_size = options.get(CONF_TD_EVENT_HISTORY_SIZE, DEFAULT_TD_EVENT_HISTORY_SIZE)
+        hub.state.berth_state.set_event_history_size(event_history_size)
+        
+        # Initialize platform mappings if SMART data is available
+        smart_manager = hass.data[DOMAIN].get(f"{entry.entry_id}_smart_manager")
+        if smart_manager and smart_manager.is_available():
+            from .smart_utils import get_berth_to_platform_mapping
+            graph = smart_manager.get_graph()
+            
+            # Build berth-to-platform mapping for configured TD areas
+            td_areas = options.get(CONF_TD_AREAS, [])
+            berth_platform_mapping = {}
+            
+            for area_id in td_areas:
+                area_mapping = get_berth_to_platform_mapping(graph, area_id)
+                # Convert to full berth keys (area:berth)
+                for berth_id, platform_id in area_mapping.items():
+                    berth_key = f"{area_id}:{berth_id}"
+                    berth_platform_mapping[berth_key] = platform_id
+            
+            hub.state.berth_state.set_berth_to_platform_mapping(berth_platform_mapping)
+            
+            # Initialize platform states for configured platforms
+            td_platforms_config = options.get(CONF_TD_PLATFORMS, {})
+            for area_id, platform_list in td_platforms_config.items():
+                hub.state.berth_state.initialize_platform_states(platform_list)
+        
         entities.append(TrainDescriberStatusSensor(hass, entry, hub))
         entities.append(TrainDescriberRawJsonSensor(hass, entry, hub))
         
@@ -501,13 +532,88 @@ class TrainDescriberAreaSensor(SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         area_berths = self.hub.state.berth_state.get_area_berths(self._area_id)
         
+        # Get configured platforms for this area
+        options = self.entry.options
+        td_platforms_config = options.get(CONF_TD_PLATFORMS, {})
+        selected_platforms = td_platforms_config.get(self._area_id, [])
+        
+        # Get platform states
+        platform_states = self.hub.state.berth_state.get_all_platform_states(
+            selected_platforms if selected_platforms else None
+        )
+        
+        # Get event history (filtered by platform if configured)
+        event_history = self.hub.state.berth_state.get_event_history(
+            selected_platforms if selected_platforms else None
+        )
+        
+        # Get SMART data for station information if available
+        smart_manager = self.hass.data.get(DOMAIN, {}).get(f"{self.entry.entry_id}_smart_manager")
+        station_name = None
+        station_code = None
+        
+        if smart_manager and smart_manager.is_available():
+            # Try to find station name from SMART data
+            # This is a simplified approach - in practice you'd need to map TD area to STANOX
+            from .stanox_utils import get_station_name
+            # For now, we'll just use the area_id as a placeholder
+            station_code = self._area_id
+        
         attrs = {
             "area_id": self._area_id,
+            "station_name": station_name,
+            "station_code": station_code,
+            "selected_platforms": selected_platforms if selected_platforms else "all",
             "berth_count": len(area_berths),
             "occupied_berths": {},
         }
         
-        # Add current berth occupancy
+        # Add platform states in the new format
+        if platform_states:
+            platforms_dict = {}
+            for platform_id, state in platform_states.items():
+                platforms_dict[platform_id] = {
+                    "platform_id": state.get("platform_id"),
+                    "current_train": state.get("current_train"),
+                    "current_event": state.get("current_event"),
+                    "last_updated": _ms_to_local_iso(state.get("last_updated")) if state.get("last_updated") else None,
+                    "status": state.get("status", "idle"),
+                }
+            attrs["platforms"] = platforms_dict
+        
+        # Add recent events
+        if event_history:
+            recent_events = []
+            for event in event_history:
+                event_dict = {
+                    "event_type": event.get("event_type"),
+                    "train_id": event.get("train_id"),
+                    "timestamp": _ms_to_local_iso(event.get("timestamp")) if event.get("timestamp") else None,
+                    "area_id": event.get("area_id"),
+                }
+                
+                # Add platform information
+                if "platform" in event:
+                    event_dict["platform"] = event["platform"]
+                if "from_platform" in event:
+                    event_dict["from_platform"] = event["from_platform"]
+                if "to_platform" in event:
+                    event_dict["to_platform"] = event["to_platform"]
+                
+                # Add berth information
+                if "from_berth" in event:
+                    event_dict["from_berth"] = event["from_berth"]
+                if "to_berth" in event:
+                    event_dict["to_berth"] = event["to_berth"]
+                
+                recent_events.append(event_dict)
+            
+            attrs["recent_events"] = recent_events
+        
+        # Add event history size
+        attrs["event_history_size"] = self.hub.state.berth_state.get_event_history_size()
+        
+        # Add current berth occupancy (backward compatibility)
         for berth_id, state in area_berths.items():
             attrs["occupied_berths"][berth_id] = state.get("description", "")
         

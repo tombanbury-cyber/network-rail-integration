@@ -1,8 +1,8 @@
 # Automation Examples
 
-This document provides practical examples for creating automations using the Network Rail Integration, with a focus on the new multi-platform tracking features introduced in v1.8.0.
+This document provides practical examples for creating automations using the Network Rail Integration, including platform tracking features.
 
-## Platform-Based Automations (NEW in v1.8.0)
+## Platform-Based Automations
 
 ### Notify When Train Arrives at Specific Platform
 
@@ -94,7 +94,7 @@ automation:
           message: "Platform 2 is now clear"
 ```
 
-## Event History Automations (NEW in v1.8.0)
+## Event History Automations
 
 ### Recent Activity Summary
 
@@ -344,7 +344,7 @@ automation:
 ## Tips and Best Practices
 
 1. **Use Template Sensors**: Create template sensors to simplify complex automations
-2. **Filter Events**: Use platform configuration to reduce noise and focus on relevant events
+2. **Filter in Templates**: Filter platforms and events in your templates for maximum flexibility (e.g., `events | selectattr('to_platform', 'in', ['1', '2', '3'])`)
 3. **Test with History**: Use Developer Tools → Template to test your templates with actual sensor data
 4. **Combine with Train Movements**: Use both TD and Train Movements data for comprehensive tracking
 5. **Event History Size**: Adjust event history size based on your automation needs (higher for analytics, lower for simple notifications)
@@ -356,15 +356,13 @@ automation:
 
 - Ensure SMART data is available and loaded (check logs)
 - Verify TD areas are correctly configured
-- Check that platforms are configured in "Configure TD Platforms"
-- Confirm berth-to-platform mapping exists for your station
+- Confirm berth-to-platform mapping exists for your station (SMART data may not have mappings for all stations)
 
 ### Events Not Appearing in History
 
 - Check event history size configuration
-- Verify events match configured platform filters
 - Ensure TD feed is receiving messages (check TD Status sensor)
-- Review debug logs for filtering information
+- Review debug logs for message processing information
 
 ### Template Errors
 

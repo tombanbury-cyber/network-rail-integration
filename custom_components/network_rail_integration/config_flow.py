@@ -21,6 +21,7 @@ from .const import (
     CONF_TOC_FILTER,
     CONF_TOPIC,
     CONF_USERNAME,
+    CONF_DIAGRAM_CONFIGS,
     CONF_DIAGRAM_ENABLED,
     CONF_DIAGRAM_STANOX,
     CONF_DIAGRAM_RANGE,
@@ -30,7 +31,7 @@ from .const import (
     DEFAULT_PLATFORM_RANGE_MAX,
     DOMAIN,
 )
-from .stanox_utils import search_stanox
+from .stanox_utils import search_stanox, get_formatted_station_name
 
 
 class NetworkRailConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -66,6 +67,8 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
         """Initialize options flow."""
         self._search_results: list[dict[str, str]] = []
         self._discovered_platforms: dict[str, list[str]] = {}  # area_id -> list of platform IDs
+        self._current_diagram_action: str | None = None  # Track current diagram action
+        self._diagram_to_edit: dict | None = None  # Track diagram being edited
     
     async def async_step_init(self, user_input=None) -> FlowResult:
         """Manage the options - main menu."""
@@ -107,11 +110,44 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             if td_areas:
                 description += f" (tracking {len(td_areas)} area(s))"
         
-        # Add network diagram status if enabled
-        from .const import CONF_DIAGRAM_ENABLED, CONF_DIAGRAM_STANOX
-        if opts.get(CONF_DIAGRAM_ENABLED, False):
-            diagram_stanox = opts.get(CONF_DIAGRAM_STANOX, "")
-            description += f"\n\nNetwork Diagram: Enabled (center: {diagram_stanox})"
+        # Add network diagram status - handle both old and new format
+        # Perform migration if needed
+        if CONF_DIAGRAM_ENABLED in opts and CONF_DIAGRAM_CONFIGS not in opts:
+            # Migrate old format to new format
+            diagram_configs = []
+            if opts.get(CONF_DIAGRAM_ENABLED, False):
+                old_stanox = opts.get(CONF_DIAGRAM_STANOX)
+                old_range = opts.get(CONF_DIAGRAM_RANGE, 1)
+                if old_stanox:
+                    diagram_configs.append({
+                        "stanox": old_stanox,
+                        "enabled": True,
+                        "range": old_range
+                    })
+            opts_copy = opts.copy()
+            opts_copy[CONF_DIAGRAM_CONFIGS] = diagram_configs
+            # Remove old keys
+            opts_copy.pop(CONF_DIAGRAM_ENABLED, None)
+            opts_copy.pop(CONF_DIAGRAM_STANOX, None)
+            opts_copy.pop(CONF_DIAGRAM_RANGE, None)
+            # Update entry
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, options=opts_copy
+            )
+            opts = opts_copy
+        
+        # Show network diagram status
+        diagram_configs = opts.get(CONF_DIAGRAM_CONFIGS, [])
+        if diagram_configs:
+            enabled_count = sum(1 for d in diagram_configs if d.get("enabled", False))
+            description += f"\n\nNetwork Diagrams: {enabled_count}/{len(diagram_configs)} enabled"
+            for diagram in diagram_configs:
+                stanox = diagram.get("stanox", "")
+                enabled = diagram.get("enabled", False)
+                diagram_range = diagram.get("range", 1)
+                status = "✓" if enabled else "✗"
+                station_name = get_formatted_station_name(stanox) or stanox
+                description += f"\n  {status} {station_name} ({stanox}, range: {diagram_range})"
         
         schema = vol.Schema(
             {
@@ -397,24 +433,113 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
         )
     
     async def async_step_configure_network_diagrams(self, user_input=None) -> FlowResult:
-        """Configure Network Diagram sensor options."""
+        """Configure Network Diagram sensor options - main menu."""
+        opts = self.config_entry.options.copy()
+        
+        # Ensure migration has happened
+        if CONF_DIAGRAM_ENABLED in opts and CONF_DIAGRAM_CONFIGS not in opts:
+            # Migrate old format to new format
+            diagram_configs = []
+            if opts.get(CONF_DIAGRAM_ENABLED, False):
+                old_stanox = opts.get(CONF_DIAGRAM_STANOX)
+                old_range = opts.get(CONF_DIAGRAM_RANGE, 1)
+                if old_stanox:
+                    diagram_configs.append({
+                        "stanox": old_stanox,
+                        "enabled": True,
+                        "range": old_range
+                    })
+            opts[CONF_DIAGRAM_CONFIGS] = diagram_configs
+            # Remove old keys
+            opts.pop(CONF_DIAGRAM_ENABLED, None)
+            opts.pop(CONF_DIAGRAM_STANOX, None)
+            opts.pop(CONF_DIAGRAM_RANGE, None)
+            # Update entry
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, options=opts
+            )
+        
+        if user_input is not None:
+            action = user_input.get("action")
+            if action == "add":
+                self._current_diagram_action = "add"
+                return await self.async_step_add_diagram()
+            elif action == "edit":
+                return await self.async_step_edit_diagram()
+            elif action == "delete":
+                return await self.async_step_delete_diagram()
+            elif action == "done":
+                return await self.async_step_init()
+        
+        # Build description showing current diagrams
+        diagram_configs = opts.get(CONF_DIAGRAM_CONFIGS, [])
+        description = "Manage Network Diagram sensors. Each diagram shows train positions on a map of berth connections.\n\n"
+        
+        if diagram_configs:
+            description += f"Currently configured diagrams ({len(diagram_configs)}):\n"
+            for diagram in diagram_configs:
+                stanox = diagram.get("stanox", "")
+                enabled = diagram.get("enabled", False)
+                diagram_range = diagram.get("range", 1)
+                status = "✓ Enabled" if enabled else "✗ Disabled"
+                station_name = get_formatted_station_name(stanox) or stanox
+                description += f"  • {station_name} ({stanox}) - Range: {diagram_range} - {status}\n"
+        else:
+            description += "No diagrams configured yet. Add a diagram to get started."
+        
+        # Build action selector
+        action_options = [
+            {"label": "Add New Diagram", "value": "add"},
+            {"label": "Edit Diagram", "value": "edit"},
+            {"label": "Delete Diagram", "value": "delete"},
+            {"label": "Done (Return to Main Menu)", "value": "done"},
+        ]
+        
+        schema = vol.Schema(
+            {
+                vol.Required("action"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=action_options,
+                        mode=selector.SelectSelectorMode.LIST,
+                    ),
+                ),
+            }
+        )
+        
+        return self.async_show_form(
+            step_id="configure_network_diagrams",
+            data_schema=schema,
+            description_placeholders={"description": description}
+        )
+    
+    async def async_step_add_diagram(self, user_input=None) -> FlowResult:
+        """Add a new network diagram."""
         errors = {}
+        opts = self.config_entry.options.copy()
+        diagram_configs = opts.get(CONF_DIAGRAM_CONFIGS, [])
         
         if user_input is not None:
             # User selected a STANOX from search results
             if "selected_stanox" in user_input and user_input["selected_stanox"]:
-                opts = self.config_entry.options.copy()
+                stanox = user_input["selected_stanox"]
                 
-                from .const import CONF_DIAGRAM_ENABLED, CONF_DIAGRAM_STANOX, CONF_DIAGRAM_RANGE
-                
-                opts[CONF_DIAGRAM_ENABLED] = user_input.get(CONF_DIAGRAM_ENABLED, False)
-                opts[CONF_DIAGRAM_STANOX] = user_input["selected_stanox"]
-                opts[CONF_DIAGRAM_RANGE] = user_input.get(CONF_DIAGRAM_RANGE, 1)
-                
-                self.hass.config_entries.async_update_entry(
-                    self.config_entry, options=opts
-                )
-                return self.async_create_entry(title="", data=opts)
+                # Check if diagram for this STANOX already exists
+                if any(d.get("stanox") == stanox for d in diagram_configs):
+                    errors["selected_stanox"] = "diagram_already_exists"
+                else:
+                    # Add the new diagram
+                    new_diagram = {
+                        "stanox": stanox,
+                        "enabled": user_input.get("diagram_enabled", True),
+                        "range": user_input.get("diagram_range", 1),
+                    }
+                    diagram_configs.append(new_diagram)
+                    opts[CONF_DIAGRAM_CONFIGS] = diagram_configs
+                    
+                    self.hass.config_entries.async_update_entry(
+                        self.config_entry, options=opts
+                    )
+                    return await self.async_step_configure_network_diagrams()
             
             # User entered a search query
             if "station_query" in user_input and user_input["station_query"]:
@@ -426,13 +551,9 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                 if not self._search_results:
                     errors["station_query"] = "no_results"
         
-        from .const import CONF_DIAGRAM_ENABLED, CONF_DIAGRAM_STANOX, CONF_DIAGRAM_RANGE
-        
-        opts = self.config_entry.options
-        
-        # Build options from search results
+        # Build schema with search results if available
         if self._search_results:
-            options = [
+            station_options = [
                 {
                     "label": f"{r['stanme']} ({r['stanox']})",
                     "value": r["stanox"],
@@ -442,20 +563,14 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             
             schema = vol.Schema(
                 {
-                    vol.Optional(
-                        CONF_DIAGRAM_ENABLED,
-                        default=opts.get(CONF_DIAGRAM_ENABLED, False)
-                    ): bool,
                     vol.Optional("selected_stanox"): selector.SelectSelector(
                         selector.SelectSelectorConfig(
-                            options=options,
+                            options=station_options,
                             mode=selector.SelectSelectorMode.DROPDOWN,
                         ),
                     ),
-                    vol.Optional(
-                        CONF_DIAGRAM_RANGE,
-                        default=opts.get(CONF_DIAGRAM_RANGE, 1)
-                    ): selector.NumberSelector(
+                    vol.Optional("diagram_enabled", default=True): bool,
+                    vol.Optional("diagram_range", default=1): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=1,
                             max=5,
@@ -468,15 +583,9 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
         else:
             schema = vol.Schema(
                 {
-                    vol.Optional(
-                        CONF_DIAGRAM_ENABLED,
-                        default=opts.get(CONF_DIAGRAM_ENABLED, False)
-                    ): bool,
                     vol.Required("station_query"): str,
-                    vol.Optional(
-                        CONF_DIAGRAM_RANGE,
-                        default=opts.get(CONF_DIAGRAM_RANGE, 1)
-                    ): selector.NumberSelector(
+                    vol.Optional("diagram_enabled", default=True): bool,
+                    vol.Optional("diagram_range", default=1): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=1,
                             max=5,
@@ -487,11 +596,178 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             )
         
         return self.async_show_form(
-            step_id="configure_network_diagrams",
+            step_id="add_diagram",
             data_schema=schema,
             errors=errors,
             description_placeholders={
-                "description": "Enable Network Diagram sensor to visualize train positions on a map of berth connections.\n\nSearch for a station to use as the center of the diagram, then set the range (number of stations in each direction to include)."
+                "description": "Search for a station to use as the center of the diagram. The range controls how many stations in each direction to include (1-5)."
+            }
+        )
+    
+    async def async_step_edit_diagram(self, user_input=None) -> FlowResult:
+        """Edit an existing network diagram."""
+        errors = {}
+        opts = self.config_entry.options.copy()
+        diagram_configs = opts.get(CONF_DIAGRAM_CONFIGS, [])
+        
+        # If no diagrams exist, show error and return
+        if not diagram_configs:
+            return self.async_show_form(
+                step_id="edit_diagram",
+                data_schema=vol.Schema({}),
+                errors={"base": "no_diagrams_configured"},
+                description_placeholders={
+                    "description": "No diagrams are configured yet. Please add a diagram first."
+                }
+            )
+        
+        if user_input is not None:
+            # If we have diagram_index, we're updating the diagram
+            if "diagram_enabled" in user_input and self._diagram_to_edit is not None:
+                # Update the diagram
+                stanox = self._diagram_to_edit.get("stanox")
+                for i, diagram in enumerate(diagram_configs):
+                    if diagram.get("stanox") == stanox:
+                        diagram_configs[i] = {
+                            "stanox": stanox,
+                            "enabled": user_input.get("diagram_enabled", True),
+                            "range": user_input.get("diagram_range", 1),
+                        }
+                        break
+                
+                opts[CONF_DIAGRAM_CONFIGS] = diagram_configs
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, options=opts
+                )
+                self._diagram_to_edit = None
+                return await self.async_step_configure_network_diagrams()
+            
+            # User selected a diagram to edit
+            if "select_diagram" in user_input and user_input["select_diagram"]:
+                selected_stanox = user_input["select_diagram"]
+                # Find the selected diagram
+                for diagram in diagram_configs:
+                    if diagram.get("stanox") == selected_stanox:
+                        self._diagram_to_edit = diagram
+                        break
+        
+        # If we're editing a specific diagram, show edit form
+        if self._diagram_to_edit is not None:
+            stanox = self._diagram_to_edit.get("stanox", "")
+            station_name = get_formatted_station_name(stanox) or stanox
+            
+            schema = vol.Schema(
+                {
+                    vol.Optional(
+                        "diagram_enabled",
+                        default=self._diagram_to_edit.get("enabled", True)
+                    ): bool,
+                    vol.Optional(
+                        "diagram_range",
+                        default=self._diagram_to_edit.get("range", 1)
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=1,
+                            max=5,
+                            mode=selector.NumberSelectorMode.BOX,
+                        ),
+                    ),
+                }
+            )
+            
+            return self.async_show_form(
+                step_id="edit_diagram",
+                data_schema=schema,
+                errors=errors,
+                description_placeholders={
+                    "description": f"Editing diagram for: {station_name} ({stanox})\n\nAdjust the enabled status and range as needed."
+                }
+            )
+        
+        # Show selection of diagrams to edit
+        diagram_options = [
+            {
+                "label": f"{get_formatted_station_name(d.get('stanox')) or d.get('stanox')} ({d.get('stanox')}) - Range: {d.get('range', 1)} - {'Enabled' if d.get('enabled', False) else 'Disabled'}",
+                "value": d.get("stanox", ""),
+            }
+            for d in diagram_configs
+        ]
+        
+        schema = vol.Schema(
+            {
+                vol.Required("select_diagram"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=diagram_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    ),
+                ),
+            }
+        )
+        
+        return self.async_show_form(
+            step_id="edit_diagram",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "description": "Select a diagram to edit."
+            }
+        )
+    
+    async def async_step_delete_diagram(self, user_input=None) -> FlowResult:
+        """Delete a network diagram."""
+        errors = {}
+        opts = self.config_entry.options.copy()
+        diagram_configs = opts.get(CONF_DIAGRAM_CONFIGS, [])
+        
+        # If no diagrams exist, show error and return
+        if not diagram_configs:
+            return self.async_show_form(
+                step_id="delete_diagram",
+                data_schema=vol.Schema({}),
+                errors={"base": "no_diagrams_configured"},
+                description_placeholders={
+                    "description": "No diagrams are configured yet. Please add a diagram first."
+                }
+            )
+        
+        if user_input is not None:
+            if "delete_diagram" in user_input and user_input["delete_diagram"]:
+                stanox_to_delete = user_input["delete_diagram"]
+                # Remove the diagram
+                diagram_configs = [d for d in diagram_configs if d.get("stanox") != stanox_to_delete]
+                opts[CONF_DIAGRAM_CONFIGS] = diagram_configs
+                
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, options=opts
+                )
+                return await self.async_step_configure_network_diagrams()
+        
+        # Show selection of diagrams to delete
+        diagram_options = [
+            {
+                "label": f"{get_formatted_station_name(d.get('stanox')) or d.get('stanox')} ({d.get('stanox')}) - Range: {d.get('range', 1)}",
+                "value": d.get("stanox", ""),
+            }
+            for d in diagram_configs
+        ]
+        
+        schema = vol.Schema(
+            {
+                vol.Required("delete_diagram"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=diagram_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    ),
+                ),
+            }
+        )
+        
+        return self.async_show_form(
+            step_id="delete_diagram",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "description": "⚠️ Warning: This action cannot be undone.\n\nSelect a diagram to delete."
             }
         )
     

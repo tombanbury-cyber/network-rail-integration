@@ -321,8 +321,66 @@ class TrainDescriberStatusSensor(SensorEntity):
             if msg_count == 0:
                 return "Waiting for messages"
             return "No recent messages"
+        
         msg_type = msg.get("msg_type", "Unknown")
-        return f"{msg_type}"
+        description = msg.get("description", "")
+        time_ms = msg.get("time")
+        
+        # Format timestamp as HH:MM:SS
+        time_str = ""
+        if time_ms:
+            time_iso = _ms_to_local_iso(time_ms)
+            if time_iso:
+                try:
+                    # Extract time portion from ISO format more safely
+                    # Expected format: 2024-12-22T14:32:15+00:00 or 2024-12-22T14:32:15-05:00
+                    time_part = time_iso.split("T")[1]
+                    # Split on + or - for timezone, take first part
+                    for sep in ["+", "-"]:
+                        if sep in time_part:
+                            time_part = time_part.split(sep)[0]
+                            break
+                    time_str = time_part[:8]  # HH:MM:SS
+                except (IndexError, ValueError):
+                    # If parsing fails, omit timestamp rather than showing confusing placeholder
+                    time_str = ""
+        
+        # Format message count with comma separators
+        count_str = f"{msg_count:,}"
+        
+        # Build status message based on type
+        if msg_type == "CA":
+            from_berth = msg.get("from_berth", "").strip()
+            to_berth = msg.get("to_berth", "").strip()
+            train_desc = f"Train {description} " if description else ""
+            # Handle empty berths
+            if not from_berth or not to_berth:
+                berth_info = f"berth {from_berth or to_berth or 'unknown'}"
+            else:
+                berth_info = f"from {from_berth} to {to_berth}"
+            time_suffix = f" at {time_str}" if time_str else ""
+            return f"CA - {train_desc}moved {berth_info}{time_suffix} ({count_str} messages)"
+        elif msg_type == "CB":
+            from_berth = msg.get("from_berth", "").strip()
+            train_desc = f"Train {description} " if description else ""
+            berth_info = f"from {from_berth}" if from_berth else "from unknown berth"
+            time_suffix = f" at {time_str}" if time_str else ""
+            return f"CB - {train_desc}cancelled {berth_info}{time_suffix} ({count_str} messages)"
+        elif msg_type == "CC":
+            to_berth = msg.get("to_berth", "").strip()
+            train_desc = f"Train {description} " if description else ""
+            berth_info = f"at {to_berth}" if to_berth else "at unknown berth"
+            time_suffix = f" at {time_str}" if time_str else ""
+            return f"CC - {train_desc}interposed {berth_info}{time_suffix} ({count_str} messages)"
+        elif msg_type == "CT":
+            time_suffix = f" at {time_str}" if time_str else ""
+            return f"CT - Heartbeat{time_suffix} ({count_str} messages)"
+        elif msg_type in ("SF", "SG", "SH"):
+            time_suffix = f" at {time_str}" if time_str else ""
+            return f"{msg_type} - Signal update{time_suffix} ({count_str} messages)"
+        
+        time_suffix = f" at {time_str}" if time_str else ""
+        return f"{msg_type}{time_suffix} ({count_str} messages)"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

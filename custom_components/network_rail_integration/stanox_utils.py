@@ -114,6 +114,102 @@ def search_stanox(query: str, limit: int = 100) -> list[dict[str, str]]:
     return results
 
 
+def format_station_name(raw_name: str | None) -> str | None:
+    """Format a station name from the STANOX CSV to be more human-readable.
+    
+    Converts abbreviated station names to proper case. Some common stations have
+    manual overrides for accurate formatting (e.g., "CANTBURYW" → "Canterbury West").
+    Other stations use pattern matching for suffixes like JN (Junction), RD (Road), etc.
+    
+    Args:
+        raw_name: The raw station name from the CSV (usually uppercase)
+        
+    Returns:
+        Formatted station name, or None if input is None
+    
+    Examples:
+        >>> format_station_name("CANTBURYW")
+        "Canterbury West"
+        >>> format_station_name("LONDONJN")
+        "London Junction"
+    """
+    if not raw_name:
+        return None
+    
+    # Start with the raw name
+    name = raw_name.strip().upper()
+    
+    # Manual overrides for common abbreviations and special cases
+    manual_overrides = {
+        "CANTBURYW": "Canterbury West",
+        "CANTBURYE": "Canterbury East",
+        "WHITSTBLE": "Whitstable",
+        "ASHFORDMD": "Ashford Middle",
+        "ASHFORDCS": "Ashford CS",
+        "ASHFORDCR": "Ashford CR",
+        "ASHFORDWY": "Ashford WY",
+        "ASHFORDI": "Ashford International",
+        "ASHFORDWJ": "Ashford West Junction",
+        "ASHFORDEJ": "Ashford East Junction",
+    }
+    
+    # Check manual overrides first
+    if name in manual_overrides:
+        return manual_overrides[name]
+    
+    # Dictionary of suffix patterns that clearly indicate a station type/direction
+    # Only match these if they are clearly separated or commonly used suffixes
+    suffix_patterns = [
+        # Multi-character suffixes (more reliable)
+        ("JN", " Junction"),
+        ("JCT", " Junction"),
+        ("STN", " Station"),
+        ("RD", " Road"),
+        ("ST", " Street"),
+        ("SQ", " Square"),
+        ("PK", " Park"),
+        ("BR", " Bridge"),
+        ("GB", " Goods Branch"),
+        ("SB", " Signal Box"),
+        ("GF", " Ground Frame"),
+        ("LP", " Loop"),
+        ("SDG", " Siding"),
+        ("YD", " Yard"),
+        ("HL", " Halt"),
+        ("HBF", " Hauptbahnhof"),
+    ]
+    
+    # Check for multi-character suffix patterns
+    for suffix, replacement in suffix_patterns:
+        if name.endswith(suffix) and len(name) > len(suffix) + 3:
+            base = name[:-len(suffix)]
+            formatted_base = base.title()
+            return formatted_base + replacement
+    
+    # For single-letter directional suffixes, be more conservative
+    # Only apply if the name is long enough and the pattern is clear
+    if len(name) > 6:
+        # Check that we have at least 2 characters to avoid IndexError
+        if len(name) >= 2:
+            if name.endswith("W") and not name[-2].isdigit():
+                # Could be West
+                base = name[:-1]
+                return base.title() + " West"
+            elif name.endswith("E") and not name[-2].isdigit():
+                # Could be East, but be careful
+                base = name[:-1]
+                return base.title() + " East"
+            elif name.endswith("N") and not name[-2].isdigit():
+                base = name[:-1]
+                return base.title() + " North"
+            elif name.endswith("S") and not name[-2].isdigit():
+                base = name[:-1]
+                return base.title() + " South"
+    
+    # If no suffix match, just convert to title case
+    return name.title()
+
+
 def get_station_name(stanox: str | None) -> str | None:
     """Get the station name for a given STANOX code.
     
@@ -134,3 +230,19 @@ def get_station_name(stanox: str | None) -> str | None:
     
     stanox_str = str(stanox).strip()
     return _stanox_lookup.get(stanox_str) if _stanox_lookup else None
+
+
+def get_formatted_station_name(stanox: str | None) -> str | None:
+    """Get the formatted station name for a given STANOX code.
+    
+    This returns a human-readable version of the station name (e.g., "Canterbury West"
+    instead of "CANTBURYW").
+    
+    Args:
+        stanox: The STANOX code to look up
+        
+    Returns:
+        The formatted station name, or None if not found
+    """
+    raw_name = get_station_name(stanox)
+    return format_station_name(raw_name)

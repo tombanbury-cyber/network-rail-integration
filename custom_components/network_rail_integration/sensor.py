@@ -29,7 +29,8 @@ from .const import (
     DEFAULT_TD_EVENT_HISTORY_SIZE,
 )
 from .toc_codes import get_toc_name, get_direction_description, get_line_description
-from .stanox_utils import get_station_name
+from .stanox_utils import get_station_name, get_formatted_station_name
+from .td_area_codes import format_td_area_title
 from .debug_log import DebugLogSensor
 
 
@@ -257,7 +258,9 @@ class OpenRailDataStationSensor(SensorEntity):
         self.hub = hub
         self._stanox = stanox
         self._station_name = station_name
-        self._attr_name = station_name
+        # Use formatted station name if available, otherwise use the provided name
+        formatted_name = get_formatted_station_name(stanox)
+        self._attr_name = formatted_name if formatted_name else station_name
         self._unsub = None
 
     async def async_added_to_hass(self) -> None:
@@ -485,7 +488,8 @@ class TrainDescriberAreaSensor(SensorEntity):
         self.entry = entry
         self.hub = hub
         self._area_id = area_id
-        self._attr_name = f"TD Area {area_id}"
+        # Use formatted TD area name with full descriptive title
+        self._attr_name = format_td_area_title(area_id)
         self._unsub = None
         self._last_message: dict[str, Any] | None = None
 
@@ -737,7 +741,12 @@ class NetworkDiagramSensor(SensorEntity):
         self.smart_manager = smart_manager
         self._center_stanox = center_stanox
         self._diagram_range = diagram_range
-        self._attr_name = f"Network Diagram {center_stanox}"
+        # Use formatted station name if available, otherwise use STANOX code
+        formatted_name = get_formatted_station_name(center_stanox)
+        if formatted_name:
+            self._attr_name = f"Network Diagram for {formatted_name} ({center_stanox})"
+        else:
+            self._attr_name = f"Network Diagram {center_stanox}"
         self._unsub = None
 
     async def async_added_to_hass(self) -> None:

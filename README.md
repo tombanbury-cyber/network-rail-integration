@@ -3,14 +3,18 @@
 Connects to Network Rail's public **STOMP** broker and subscribes to:
 - **Train Movements** (default topic: `TRAIN_MVT_ALL_TOC`) - Real-time train arrival, departure, and passing events
 - **Train Describer** (optional topic: `TD_ALL_SIG_AREA`) - Real-time signalling berth occupancy for network diagrams
+- **SMART Data** (NEW in v1.7.0) - Berth topology data for creating Traksy-style network diagrams
 
 ## Features
 
 ### Train Movements Feed
 Track train movements at specific stations with detailed arrival/departure information, platform numbers, train operating companies, and timing data.
 
-### Train Describer Feed (NEW in v1.5.0)
+### Train Describer Feed
 Monitor train positions through signalling berths for creating live railway network diagrams. See [TRAIN_DESCRIBER.md](TRAIN_DESCRIBER.md) for details.
+
+### Network Diagrams (NEW in v1.7.0)
+Visualize train positions on a map of berth connections showing adjacent stations and real-time occupancy. Uses Network Rail's SMART data to build topology graphs. See [NETWORK_DIAGRAMS.md](NETWORK_DIAGRAMS.md) for detailed documentation.
 
 ## Entities
 
@@ -24,6 +28,9 @@ The integration creates the following entities:
 ### Train Describer (when enabled)
 - **Sensor**: `sensor.network_rail_integration_train_describer_status` - Overall TD status and statistics
 - **Sensor (per area)**: `sensor.network_rail_integration_td_area_<area_id>` - Berth occupancy for specific TD areas
+
+### Network Diagrams (NEW in v1.7.0, when enabled)
+- **Sensor**: `sensor.network_rail_integration_diagram_<stanox>` - Network diagram showing berth occupancy at a station and adjacent stations
 
 ### Debug and Diagnostics
 - **Sensor**: `sensor.network_rail_integration_debug_log` - Recent log messages for debugging (shows last 50 entries)
@@ -123,6 +130,25 @@ To enable Train Describer feed:
 
 See [TRAIN_DESCRIBER.md](TRAIN_DESCRIBER.md) for detailed information about the Train Describer feature.
 
+### Configuring Network Diagrams (NEW in v1.7.0)
+
+To enable Network Diagram sensor:
+
+1. Open the integration configuration
+2. Select "Configure Network Diagrams"
+3. Enable the "Enable Network Diagrams" checkbox
+4. Search for a station to use as the center of the diagram
+5. Set the range (number of stations in each direction to include, 1-5)
+6. Save the configuration
+
+The Network Diagram sensor will:
+- Show the count of occupied berths as its state
+- Provide detailed attributes with berth occupancy for the center station and adjacent stations
+- Update in real-time as trains move through berths
+- Use SMART data to understand berth topology
+
+See [NETWORK_DIAGRAMS.md](NETWORK_DIAGRAMS.md) for detailed information about creating network diagrams and using SMART data.
+
 ### Finding STANOX Codes
 
 STANOX codes are unique identifiers for railway locations in the UK. This integration includes a searchable database of over 11,000 STANOX codes to help you find the right one:
@@ -137,6 +163,26 @@ STANOX codes are unique identifiers for railway locations in the UK. This integr
    - You can also enter the STANOX code directly to verify it
 4. Select the station from the search results (up to 50 matches shown)
 5. The STANOX code will be automatically set
+
+## Services
+
+The integration provides the following services:
+
+### `network_rail_integration.refresh_smart_data`
+
+Manually download and refresh SMART berth topology data used for network diagrams.
+
+**Parameters**: None
+
+**Example**:
+```yaml
+service: network_rail_integration.refresh_smart_data
+```
+
+This service is useful for:
+- Forcing a refresh before the 30-day cache expires
+- Recovering from a failed initial download  
+- Updating after Network Rail publishes new SMART data
 
 ## Logging
 

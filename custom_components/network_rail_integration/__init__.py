@@ -5,15 +5,20 @@ from __future__ import annotations
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers import config_validation as cv
+import voluptuous as vol
 
-from .const import DOMAIN
+from .const import DOMAIN, CONF_USERNAME, CONF_PASSWORD
 from .hub import OpenRailDataHub
 from .debug_log import DebugLogger
+from .smart_data import SmartDataManager
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[str] = ["sensor", "binary_sensor"]
+
+SERVICE_REFRESH_SMART_DATA = "refresh_smart_data"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -23,6 +28,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Create debug logger (sensor will be attached later during sensor setup)
     debug_logger = DebugLogger(_LOGGER)
     hass.data[DOMAIN][f"{entry.entry_id}_debug_logger"] = debug_logger
+
+    # Initialize SMART data manager
+    username = entry.data.get(CONF_USERNAME)
+    password = entry.data.get(CONF_PASSWORD)
+    smart_manager = SmartDataManager(hass, username, password)
+    hass.data[DOMAIN][f"{entry.entry_id}_smart_manager"] = smart_manager
+    
+    # Load SMART data asynchronously (non-blocking)
+    hass.async_create_task(smart_manager.load_data())
 
     hub = OpenRailDataHub(hass, entry, debug_logger)
     hass.data[DOMAIN][entry.entry_id] = hub
@@ -38,6 +52,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         debug_logger.info("Debug sensor connected to logger")
     else:
         _LOGGER.warning("Debug sensor not found, debug logging to UI will not be available")
+    
+    # Register services
+    async def handle_refresh_smart_data(call: ServiceCall) -> None:
+        """Handle refresh_smart_data service call."""
+        _LOGGER.info("Refreshing SMART data via service call")
+        success = await smart_manager.refresh_data()
+        if success:
+            _LOGGER.info("SMART data refreshed successfully")
+        else:
+            _LOGGER.error("Failed to refresh SMART data")
+    
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REFRESH_SMART_DATA,
+        handle_refresh_smart_data,
+        schema=vol.Schema({}),
+    )
     
     # Register update listener to reload when options change
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -55,4 +86,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     hub: OpenRailDataHub = hass.data[DOMAIN].pop(entry.entry_id)
     await hub.async_stop()
+    
+    # Clean up SMART manager
+    hass.data[DOMAIN].pop(f"{entry.entry_id}_smart_manager", None)
+    
+    # Unregister services if this is the last entry
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if len(entries) == 0:
+        hass.services.async_remove(DOMAIN, SERVICE_REFRESH_SMART_DATA)
+    
     return unload_ok

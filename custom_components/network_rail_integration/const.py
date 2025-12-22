@@ -12,12 +12,19 @@ CONF_EVENT_TYPES = "event_types"
 CONF_FIX_DST_QUIRK = "fix_dst_quirk"
 CONF_ENABLE_TD = "enable_td"  # Enable Train Describer feed
 CONF_TD_AREAS = "td_areas"  # List of TD area IDs to track
+CONF_DIAGRAM_ENABLED = "diagram_enabled"
+CONF_DIAGRAM_STANOX = "diagram_stanox"
+CONF_DIAGRAM_RANGE = "diagram_range"  # Number of stations each direction
 
 DEFAULT_TOPIC = "TRAIN_MVT_ALL_TOC"
 DEFAULT_TD_TOPIC = "TD_ALL_SIG_AREA"
 
 NR_HOST = "publicdatafeeds.networkrail.co.uk"
 NR_PORT = 61618
+
+SMART_DATA_URL = "https://publicdatafeeds.networkrail.co.uk/ntrod/SupportingFileAuthenticate?type=SMART"
+SMART_CACHE_FILE = "smart_data.json"
+SMART_CACHE_EXPIRY_DAYS = 30
 
 DISPATCH_MOVEMENT = f"{DOMAIN}_movement"
 DISPATCH_CONNECTED = f"{DOMAIN}_connected"

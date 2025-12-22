@@ -23,9 +23,7 @@ from .const import (
     CONF_TD_AREAS,
     CONF_TD_PLATFORMS,
     CONF_TD_EVENT_HISTORY_SIZE,
-    CONF_DIAGRAM_ENABLED,
-    CONF_DIAGRAM_STANOX,
-    CONF_DIAGRAM_RANGE,
+    CONF_DIAGRAM_CONFIGS,
     DEFAULT_TD_EVENT_HISTORY_SIZE,
 )
 from .toc_codes import get_toc_name, get_direction_description, get_line_description
@@ -100,14 +98,16 @@ async def async_setup_entry(
         for area_id in td_areas:
             entities.append(TrainDescriberAreaSensor(hass, entry, hub, area_id))
     
-    # Add Network Diagram sensor if enabled
-    if options.get(CONF_DIAGRAM_ENABLED, False):
-        diagram_stanox = options.get(CONF_DIAGRAM_STANOX)
-        diagram_range = options.get(CONF_DIAGRAM_RANGE, 1)
-        if diagram_stanox:
-            smart_manager = hass.data[DOMAIN].get(f"{entry.entry_id}_smart_manager")
-            if smart_manager:
-                entities.append(NetworkDiagramSensor(hass, entry, hub, smart_manager, diagram_stanox, diagram_range))
+    # Add Network Diagram sensors for each configured diagram
+    diagram_configs = options.get(CONF_DIAGRAM_CONFIGS, [])
+    smart_manager = hass.data[DOMAIN].get(f"{entry.entry_id}_smart_manager")
+    if smart_manager:
+        for diagram_cfg in diagram_configs:
+            if diagram_cfg.get("enabled", False):
+                diagram_stanox = diagram_cfg.get("stanox")
+                diagram_range = diagram_cfg.get("range", 1)
+                if diagram_stanox:
+                    entities.append(NetworkDiagramSensor(hass, entry, hub, smart_manager, diagram_stanox, diagram_range))
     
     # Add debug log sensor
     debug_sensor = DebugLogSensor(hass, entry)

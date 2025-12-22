@@ -61,6 +61,39 @@
           "selected_platforms": "Select Platforms to Track"
         }
       },
+      "configure_network_diagrams": {
+        "title": "Configure Network Diagrams",
+        "description": "Manage Network Diagram sensors. Each diagram shows train positions on a map of berth connections.",
+        "data": {
+          "action": "Choose an action"
+        }
+      },
+      "add_diagram": {
+        "title": "Add Network Diagram",
+        "description": "Search for a station to use as the center of the diagram. The range controls how many stations in each direction to include (1-5).",
+        "data": {
+          "station_query": "Station name to search",
+          "selected_stanox": "Select a station",
+          "diagram_enabled": "Enable this diagram",
+          "diagram_range": "Range (stations in each direction)"
+        }
+      },
+      "edit_diagram": {
+        "title": "Edit Network Diagram",
+        "description": "Edit an existing network diagram configuration.",
+        "data": {
+          "select_diagram": "Select diagram to edit",
+          "diagram_enabled": "Enable this diagram",
+          "diagram_range": "Range (stations in each direction)"
+        }
+      },
+      "delete_diagram": {
+        "title": "Delete Network Diagram",
+        "description": "⚠️ Warning: This action cannot be undone. Select a diagram to delete.",
+        "data": {
+          "delete_diagram": "Select diagram to delete"
+        }
+      },
       "search_station": {
         "title": "Search for Station",
         "description": "Enter a station name to search for its STANOX code. Station names are often abbreviated (e.g., 'MANC' for Manchester, 'PADD' for Paddington, 'EUSTON' for London Euston).",
@@ -74,7 +107,9 @@
       "no_results": "No stations found matching your search. Try a different search term.",
       "station_already_exists": "This station is already being tracked.",
       "no_td_areas": "No TD areas are configured. Please configure TD areas first.",
-      "no_area_selected": "Please select a TD area to configure platforms."
+      "no_area_selected": "Please select a TD area to configure platforms.",
+      "no_diagrams_configured": "No diagrams are configured yet. Please add a diagram first.",
+      "diagram_already_exists": "A diagram for this station is already configured."
     }
   }
 }

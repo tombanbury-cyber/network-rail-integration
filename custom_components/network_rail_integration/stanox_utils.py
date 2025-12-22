@@ -117,13 +117,21 @@ def search_stanox(query: str, limit: int = 100) -> list[dict[str, str]]:
 def format_station_name(raw_name: str | None) -> str | None:
     """Format a station name from the STANOX CSV to be more human-readable.
     
-    Converts names like "CANTBURYW" to "Canterbury West", "WHITSTBLE" to "Whitstable", etc.
+    Converts abbreviated station names to proper case. Some common stations have
+    manual overrides for accurate formatting (e.g., "CANTBURYW" → "Canterbury West").
+    Other stations use pattern matching for suffixes like JN (Junction), RD (Road), etc.
     
     Args:
         raw_name: The raw station name from the CSV (usually uppercase)
         
     Returns:
         Formatted station name, or None if input is None
+    
+    Examples:
+        >>> format_station_name("CANTBURYW")
+        "Canterbury West"
+        >>> format_station_name("LONDONJN")
+        "London Junction"
     """
     if not raw_name:
         return None
@@ -181,20 +189,22 @@ def format_station_name(raw_name: str | None) -> str | None:
     # For single-letter directional suffixes, be more conservative
     # Only apply if the name is long enough and the pattern is clear
     if len(name) > 6:
-        if name.endswith("W") and not name[-2].isdigit():
-            # Could be West
-            base = name[:-1]
-            return base.title() + " West"
-        elif name.endswith("E") and not name[-2].isdigit():
-            # Could be East, but be careful
-            base = name[:-1]
-            return base.title() + " East"
-        elif name.endswith("N") and not name[-2].isdigit():
-            base = name[:-1]
-            return base.title() + " North"
-        elif name.endswith("S") and not name[-2].isdigit():
-            base = name[:-1]
-            return base.title() + " South"
+        # Check that we have at least 2 characters to avoid IndexError
+        if len(name) >= 2:
+            if name.endswith("W") and not name[-2].isdigit():
+                # Could be West
+                base = name[:-1]
+                return base.title() + " West"
+            elif name.endswith("E") and not name[-2].isdigit():
+                # Could be East, but be careful
+                base = name[:-1]
+                return base.title() + " East"
+            elif name.endswith("N") and not name[-2].isdigit():
+                base = name[:-1]
+                return base.title() + " North"
+            elif name.endswith("S") and not name[-2].isdigit():
+                base = name[:-1]
+                return base.title() + " South"
     
     # If no suffix match, just convert to title case
     return name.title()

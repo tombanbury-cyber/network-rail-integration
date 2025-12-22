@@ -180,7 +180,7 @@ class BerthState:
         """
         self._berths: dict[str, dict[str, str]] = {}  # berth_id -> {description, timestamp}
         self._event_history_size = max(1, min(50, event_history_size))
-        self._event_history: deque = deque(maxlen=self._event_history_size)
+        self._event_history: deque[dict[str, Any]] = deque(maxlen=self._event_history_size)
         self._platform_state: dict[str, dict[str, Any]] = {}  # platform_id -> {current_train, current_event, etc.}
         self._berth_to_platform: dict[str, str] = {}  # berth_key -> platform_id mapping
     
@@ -204,6 +204,40 @@ class BerthState:
             # Create new deque with new size and copy old events
             old_events = list(self._event_history)
             self._event_history = deque(old_events[-new_size:], maxlen=new_size)
+    
+    def _update_platform_idle(self, platform_id: str, timestamp: Any) -> None:
+        """Update platform state to idle.
+        
+        Args:
+            platform_id: Platform identifier
+            timestamp: Timestamp of the state change
+        """
+        if platform_id:
+            self._platform_state[platform_id] = {
+                "platform_id": platform_id,
+                "current_train": None,
+                "current_event": None,
+                "last_updated": timestamp,
+                "status": "idle",
+            }
+    
+    def _update_platform_active(self, platform_id: str, train_id: str, event_type: str, timestamp: Any) -> None:
+        """Update platform state to active.
+        
+        Args:
+            platform_id: Platform identifier
+            train_id: Train description
+            event_type: Event type (arrive, interpose, step)
+            timestamp: Timestamp of the state change
+        """
+        if platform_id:
+            self._platform_state[platform_id] = {
+                "platform_id": platform_id,
+                "current_train": train_id,
+                "current_event": event_type,
+                "last_updated": timestamp,
+                "status": "active",
+            }
     
     def update(self, parsed_message: dict[str, Any]) -> None:
         """Update berth state based on a TD message.
@@ -249,14 +283,7 @@ class BerthState:
             self._berths.pop(from_berth, None)
             
             # Update platform state for departure
-            if from_platform and from_platform in self._platform_state:
-                self._platform_state[from_platform] = {
-                    "platform_id": from_platform,
-                    "current_train": None,
-                    "current_event": None,
-                    "last_updated": time,
-                    "status": "idle",
-                }
+            self._update_platform_idle(from_platform, time)
             
             # Set to berth
             self._berths[to_berth] = {
@@ -265,14 +292,7 @@ class BerthState:
             }
             
             # Update platform state for arrival
-            if to_platform:
-                self._platform_state[to_platform] = {
-                    "platform_id": to_platform,
-                    "current_train": description,
-                    "current_event": "arrive",
-                    "last_updated": time,
-                    "status": "active",
-                }
+            self._update_platform_active(to_platform, description, "arrive", time)
             
         elif msg_type == TD_MSG_CB:
             # Berth Cancel: remove from berth
@@ -294,14 +314,7 @@ class BerthState:
             self._berths.pop(from_berth, None)
             
             # Update platform state
-            if from_platform:
-                self._platform_state[from_platform] = {
-                    "platform_id": from_platform,
-                    "current_train": None,
-                    "current_event": None,
-                    "last_updated": time,
-                    "status": "idle",
-                }
+            self._update_platform_idle(from_platform, time)
             
         elif msg_type == TD_MSG_CC:
             # Berth Interpose: insert into berth
@@ -326,14 +339,7 @@ class BerthState:
             }
             
             # Update platform state
-            if to_platform:
-                self._platform_state[to_platform] = {
-                    "platform_id": to_platform,
-                    "current_train": description,
-                    "current_event": "interpose",
-                    "last_updated": time,
-                    "status": "active",
-                }
+            self._update_platform_active(to_platform, description, "interpose", time)
         
         # Add event to history (only for berth operations, not heartbeats)
         if msg_type in (TD_MSG_CA, TD_MSG_CB, TD_MSG_CC):

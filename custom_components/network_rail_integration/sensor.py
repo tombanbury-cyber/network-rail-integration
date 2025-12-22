@@ -572,11 +572,12 @@ class TrainDescriberAreaSensor(SensorEntity):
         if platform_states:
             platforms_dict = {}
             for platform_id, state in platform_states.items():
+                last_updated = state.get("last_updated")
                 platforms_dict[platform_id] = {
                     "platform_id": state.get("platform_id"),
                     "current_train": state.get("current_train"),
                     "current_event": state.get("current_event"),
-                    "last_updated": _ms_to_local_iso(state.get("last_updated")) if state.get("last_updated") else None,
+                    "last_updated": _ms_to_local_iso(last_updated) if last_updated else None,
                     "status": state.get("status", "idle"),
                 }
             attrs["platforms"] = platforms_dict
@@ -585,10 +586,11 @@ class TrainDescriberAreaSensor(SensorEntity):
         if event_history:
             recent_events = []
             for event in event_history:
+                timestamp = event.get("timestamp")
                 event_dict = {
                     "event_type": event.get("event_type"),
                     "train_id": event.get("train_id"),
-                    "timestamp": _ms_to_local_iso(event.get("timestamp")) if event.get("timestamp") else None,
+                    "timestamp": _ms_to_local_iso(timestamp) if timestamp else None,
                     "area_id": event.get("area_id"),
                 }
                 

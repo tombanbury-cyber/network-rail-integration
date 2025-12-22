@@ -46,10 +46,19 @@
       },
       "configure_train_describer": {
         "title": "Configure Train Describer",
-        "description": "Enable Train Describer feed to track train positions through signalling berths. This is useful for creating network diagrams.\n\nLeave TD areas empty to receive all messages, or specify specific area IDs (e.g., 'SK', 'G1', 'RW') to filter.",
+        "description": "Enable Train Describer feed to track train positions through signalling berths. This is useful for creating network diagrams.\n\nLeave TD areas empty to receive all messages, or specify specific area IDs (e.g., 'SK', 'G1', 'RW') to filter.\n\nEvent history size controls how many recent TD events are kept for each area (default: 10, range: 1-50).",
         "data": {
           "enable_td": "Enable Train Describer Feed",
-          "td_areas": "TD Area IDs (comma-separated, e.g., 'SK, G1, RW')"
+          "td_areas": "TD Area IDs (comma-separated, e.g., 'SK, G1, RW')",
+          "td_event_history_size": "Event History Size"
+        }
+      },
+      "configure_td_platforms": {
+        "title": "Configure TD Platforms",
+        "description": "Select a TD area and choose which platforms to track. Platforms are discovered from SMART berth topology data when available.",
+        "data": {
+          "td_area": "Select TD Area",
+          "selected_platforms": "Select Platforms to Track"
         }
       },
       "search_station": {
@@ -63,7 +72,9 @@
     },
     "error": {
       "no_results": "No stations found matching your search. Try a different search term.",
-      "station_already_exists": "This station is already being tracked."
+      "station_already_exists": "This station is already being tracked.",
+      "no_td_areas": "No TD areas are configured. Please configure TD areas first.",
+      "no_area_selected": "Please select a TD area to configure platforms."
     }
   }
 }

@@ -131,22 +131,7 @@ To enable Train Describer feed:
 
 See [TRAIN_DESCRIBER.md](TRAIN_DESCRIBER.md) for detailed information about the Train Describer feature.
 
-### Configuring TD Platforms (NEW in v1.8.0)
-
-To configure multi-platform tracking:
-
-1. Open the integration configuration
-2. Select "Configure TD Platforms"
-3. Choose a TD area from the dropdown
-4. Select which platforms to track (platforms are automatically discovered from SMART data)
-5. Save the configuration
-
-The TD Area sensor will then include:
-- Platform-specific state (current train, event type, status)
-- Event history with platform associations
-- Real-time updates as trains move between platforms
-
-See [TRAIN_DESCRIBER.md](TRAIN_DESCRIBER.md) and [AUTOMATION_EXAMPLES.md](AUTOMATION_EXAMPLES.md) for usage examples.
+**Note:** All platforms in configured TD areas are automatically tracked. You can filter platforms in your templates and automations for maximum flexibility. See [AUTOMATION_EXAMPLES.md](AUTOMATION_EXAMPLES.md) for examples.
 
 ### Configuring Network Diagrams (NEW in v1.7.0)
 

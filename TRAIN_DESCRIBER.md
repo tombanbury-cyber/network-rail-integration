@@ -119,33 +119,18 @@ One sensor is created for each configured TD area (if area filtering is enabled)
     # ... up to configured history size (default 10)
   ]
   ```
-- **NEW in v1.8.0** - `event_history_size`: Maximum number of events kept in history
+- **event_history_size**: Maximum number of events kept in history
 - `last_msg_type`: Last message type received for this area
 - `last_time_local`: Local time of last message
 - Message-specific fields from last message
 
-## Multi-Platform Tracking (NEW in v1.8.0)
+## Platform Tracking
 
-The Train Describer integration now supports tracking multiple platforms simultaneously at a station, with configurable event history.
-
-### Configuration
-
-1. **Enable Train Describer** in the integration configuration
-2. **Configure TD Areas** to specify which TD area(s) to track
-3. **Configure Event History Size** (default: 10, range: 1-50) to control how many recent events to keep
-4. **Configure TD Platforms** to select which platforms to track for each area
-
-### Platform Discovery
-
-When you configure TD platforms, the integration will:
-- Automatically discover available platforms from SMART berth topology data
-- Present them as checkboxes for easy selection
-- Default to tracking all platforms if none are specifically selected
-- Fall back to a default list (platforms 1-10) if SMART data is unavailable
+The Train Describer integration automatically tracks all platforms in configured TD areas. Platform tracking uses SMART berth topology data to associate berths with platform numbers.
 
 ### Platform State Tracking
 
-For each configured platform, the sensor tracks:
+For each platform discovered in a TD area, the sensor tracks:
 - **current_train**: The train description currently occupying the platform
 - **current_event**: The most recent event type (arrive, interpose, step)
 - **last_updated**: Timestamp of the last platform activity
@@ -153,14 +138,14 @@ For each configured platform, the sensor tracks:
 
 ### Event History
 
-The sensor maintains a configurable history of recent TD events, with each event including:
+The sensor maintains a configurable history of recent TD events (configured via **Event History Size** setting, default: 10, range: 1-50), with each event including:
 - Event type (step, cancel, interpose)
 - Train ID (description from TD feed)
 - Timestamp
-- Platform associations (from_platform, to_platform, or platform)
+- Platform associations (from_platform, to_platform, or platform) when available
 - Berth information (from_berth, to_berth)
 
-Events are stored in a circular buffer and automatically filtered to only include events for configured platforms.
+Events are stored in a circular buffer and include all events for the TD area. You can filter events by platform in your templates and automations.
 
 ## Using TD Data
 
@@ -217,7 +202,7 @@ entities:
 
 ### Automations
 
-**NEW in v1.8.0** - Get notified when a train arrives at a specific platform:
+Get notified when a train arrives at a specific platform:
 
 ```yaml
 automation:
@@ -240,7 +225,7 @@ automation:
             arriving at Platform 1
 ```
 
-**NEW in v1.8.0** - Monitor when any platform becomes active:
+Monitor when any platform becomes active:
 
 ```yaml
 automation:
@@ -264,6 +249,23 @@ automation:
             {% set platforms = state_attr('sensor.network_rail_integration_td_area_sk', 'platforms') %}
             {% set active = platforms.values() | selectattr('status', 'equalto', 'active') | list %}
             {{ active | length }} platform(s) active
+```
+
+Filter events for specific platforms in templates:
+
+```yaml
+automation:
+  - alias: "Notify for events on platforms 1-3"
+    trigger:
+      - platform: state
+        entity_id: sensor.network_rail_integration_td_area_sk
+    action:
+      - service: notify.mobile_app
+        data:
+          message: >
+            {% set events = state_attr('sensor.network_rail_integration_td_area_sk', 'recent_events') %}
+            {% set filtered = events | selectattr('to_platform', 'in', ['1', '2', '3']) | list %}
+            {{ filtered | length }} recent events on platforms 1-3
 ```
 
 Get notified when a train enters a specific berth (classic method):

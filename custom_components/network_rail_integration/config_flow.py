@@ -17,7 +17,6 @@ from .const import (
     CONF_STATIONS,
     CONF_TD_AREAS,
     CONF_TD_EVENT_HISTORY_SIZE,
-    CONF_TD_PLATFORMS,
     CONF_TOC_FILTER,
     CONF_TOPIC,
     CONF_USERNAME,
@@ -27,8 +26,6 @@ from .const import (
     CONF_DIAGRAM_RANGE,
     DEFAULT_TOPIC,
     DEFAULT_TD_EVENT_HISTORY_SIZE,
-    DEFAULT_PLATFORM_RANGE_MIN,
-    DEFAULT_PLATFORM_RANGE_MAX,
     DOMAIN,
 )
 from .stanox_utils import search_stanox, get_formatted_station_name
@@ -66,7 +63,6 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
     def __init__(self) -> None:
         """Initialize options flow."""
         self._search_results: list[dict[str, str]] = []
-        self._discovered_platforms: dict[str, list[str]] = {}  # area_id -> list of platform IDs
         self._current_diagram_action: str | None = None  # Track current diagram action
         self._diagram_to_edit: dict | None = None  # Track diagram being edited
     
@@ -111,8 +107,6 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                 return await self.async_step_configure_filters()
             elif action == "configure_train_describer":
                 return await self.async_step_configure_train_describer()
-            elif action == "configure_td_platforms":
-                return await self.async_step_configure_td_platforms()
             elif action == "configure_network_diagrams":
                 return await self.async_step_configure_network_diagrams()
             
@@ -169,7 +163,6 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                             {"label": "Remove Station", "value": "remove_station"},
                             {"label": "Configure Filters (TOC, Event Types)", "value": "configure_filters"},
                             {"label": "Configure Train Describer", "value": "configure_train_describer"},
-                            {"label": "Configure TD Platforms", "value": "configure_td_platforms"},
                             {"label": "Configure Network Diagrams", "value": "configure_network_diagrams"},
                         ],
                         mode=selector.SelectSelectorMode.LIST,
@@ -763,134 +756,4 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             description_placeholders={
                 "description": "⚠️ Warning: This action cannot be undone.\n\nSelect a diagram to delete."
             }
-        )
-    
-    async def async_step_configure_td_platforms(self, user_input=None) -> FlowResult:
-        """Configure platform tracking for TD areas."""
-        errors = {}
-        
-        if user_input is not None:
-            opts = self.config_entry.options.copy()
-            
-            # Get selected area
-            selected_area = user_input.get("td_area")
-            if selected_area:
-                # Get selected platforms
-                selected_platforms = user_input.get("selected_platforms", [])
-                
-                # Update platform configuration
-                td_platforms = opts.get(CONF_TD_PLATFORMS, {})
-                if selected_platforms:
-                    td_platforms[selected_area] = selected_platforms
-                elif selected_area in td_platforms:
-                    # Remove area if no platforms selected
-                    del td_platforms[selected_area]
-                
-                opts[CONF_TD_PLATFORMS] = td_platforms
-                
-                self.hass.config_entries.async_update_entry(
-                    self.config_entry, options=opts
-                )
-                return self.async_create_entry(title="", data=opts)
-            else:
-                errors["td_area"] = "no_area_selected"
-        
-        opts = self.config_entry.options
-        td_areas = opts.get(CONF_TD_AREAS, [])
-        td_platforms_config = opts.get(CONF_TD_PLATFORMS, {})
-        
-        # If no TD areas configured, show error
-        if not td_areas:
-            return self.async_show_form(
-                step_id="configure_td_platforms",
-                data_schema=vol.Schema({}),
-                errors={"base": "no_td_areas"},
-                description_placeholders={
-                    "description": "No TD areas are configured. Please configure TD areas first in 'Configure Train Describer'."
-                }
-            )
-        
-        # Try to discover platforms using SMART data
-        smart_manager = self.hass.data.get(DOMAIN, {}).get(f"{self.config_entry.entry_id}_smart_manager")
-        
-        if smart_manager and smart_manager.is_available():
-            # Discover platforms from SMART data
-            from .smart_utils import get_platforms_for_area
-            graph = smart_manager.get_graph()
-            
-            for area_id in td_areas:
-                if area_id not in self._discovered_platforms:
-                    platforms = get_platforms_for_area(graph, area_id)
-                    self._discovered_platforms[area_id] = platforms
-        else:
-            # SMART data not available, use default platform list
-            for area_id in td_areas:
-                if area_id not in self._discovered_platforms:
-                    # Provide default set of platform numbers
-                    self._discovered_platforms[area_id] = [
-                        str(i) for i in range(DEFAULT_PLATFORM_RANGE_MIN, DEFAULT_PLATFORM_RANGE_MAX + 1)
-                    ]
-        
-        # Build schema for area and platform selection
-        area_options = [
-            {
-                "label": f"{area_id} ({len(td_platforms_config.get(area_id, []))} platforms configured)",
-                "value": area_id,
-            }
-            for area_id in td_areas
-        ]
-        
-        # Get currently selected area (from previous input or first area)
-        current_area = user_input.get("td_area") if user_input else (td_areas[0] if td_areas else None)
-        
-        # Build platform options for selected area
-        platform_options = []
-        if current_area and current_area in self._discovered_platforms:
-            platform_options = [
-                {"label": f"Platform {p}", "value": p}
-                for p in self._discovered_platforms[current_area]
-            ]
-        
-        # Get currently selected platforms for this area
-        current_platforms = td_platforms_config.get(current_area, []) if current_area else []
-        
-        schema_dict = {
-            vol.Required("td_area", default=current_area): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=area_options,
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                ),
-            ),
-        }
-        
-        if platform_options:
-            schema_dict[vol.Optional("selected_platforms", default=current_platforms)] = selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=platform_options,
-                    multiple=True,
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                ),
-            )
-        
-        schema = vol.Schema(schema_dict)
-        
-        # Build description showing current configuration
-        description = "Select a TD area and choose which platforms to track.\n\n"
-        if smart_manager and smart_manager.is_available():
-            description += "Platforms discovered from SMART berth topology data.\n\n"
-        else:
-            description += "SMART data not available. Showing default platform list (1-10).\n\n"
-        
-        if td_platforms_config:
-            description += "Current configuration:\n"
-            for area_id, platforms in td_platforms_config.items():
-                description += f"  • {area_id}: {', '.join(platforms)}\n"
-        else:
-            description += "No platforms configured yet. All platforms will be tracked by default."
-        
-        return self.async_show_form(
-            step_id="configure_td_platforms",
-            data_schema=schema,
-            errors=errors,
-            description_placeholders={"description": description}
         )

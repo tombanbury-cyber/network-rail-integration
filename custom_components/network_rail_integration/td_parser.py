@@ -405,50 +405,21 @@ class BerthState:
         """
         return self._platform_state.get(platform_id)
     
-    def get_all_platform_states(self, selected_platforms: list[str] | None = None) -> dict[str, dict[str, Any]]:
-        """Get state for all tracked platforms or a filtered subset.
+    def get_all_platform_states(self) -> dict[str, dict[str, Any]]:
+        """Get state for all tracked platforms.
         
-        Args:
-            selected_platforms: Optional list of platform IDs to filter by
-            
         Returns:
             Dictionary mapping platform IDs to their state
         """
-        if selected_platforms is None:
-            return self._platform_state.copy()
-        
-        return {
-            pid: state
-            for pid, state in self._platform_state.items()
-            if pid in selected_platforms
-        }
+        return self._platform_state.copy()
     
-    def get_event_history(self, platform_filter: list[str] | None = None) -> list[dict[str, Any]]:
+    def get_event_history(self) -> list[dict[str, Any]]:
         """Get recent event history.
         
-        Args:
-            platform_filter: Optional list of platform IDs to filter events by
-            
         Returns:
             List of event records, most recent last
         """
-        events = list(self._event_history)
-        
-        if platform_filter is not None:
-            # Filter events that have platform association matching the filter
-            filtered = []
-            for event in events:
-                # Check if event has any platform field matching the filter
-                has_match = False
-                for key in ["platform", "from_platform", "to_platform"]:
-                    if key in event and event[key] in platform_filter:
-                        has_match = True
-                        break
-                if has_match:
-                    filtered.append(event)
-            return filtered
-        
-        return events
+        return list(self._event_history)
     
     def get_event_history_size(self) -> int:
         """Get the configured event history size.
@@ -457,19 +428,3 @@ class BerthState:
             Maximum number of events kept in history
         """
         return self._event_history_size
-    
-    def initialize_platform_states(self, platforms: list[str]) -> None:
-        """Initialize platform states for tracking.
-        
-        Args:
-            platforms: List of platform IDs to track
-        """
-        for platform_id in platforms:
-            if platform_id not in self._platform_state:
-                self._platform_state[platform_id] = {
-                    "platform_id": platform_id,
-                    "current_train": None,
-                    "current_event": None,
-                    "last_updated": None,
-                    "status": "idle",
-                }

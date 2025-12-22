@@ -21,7 +21,6 @@ from .const import (
     CONF_STANOX_FILTER,
     CONF_ENABLE_TD,
     CONF_TD_AREAS,
-    CONF_TD_PLATFORMS,
     CONF_TD_EVENT_HISTORY_SIZE,
     CONF_DIAGRAM_CONFIGS,
     DEFAULT_TD_EVENT_HISTORY_SIZE,
@@ -84,11 +83,6 @@ async def async_setup_entry(
                     berth_platform_mapping[berth_key] = platform_id
             
             hub.state.berth_state.set_berth_to_platform_mapping(berth_platform_mapping)
-            
-            # Initialize platform states for configured platforms
-            td_platforms_config = options.get(CONF_TD_PLATFORMS, {})
-            for area_id, platform_list in td_platforms_config.items():
-                hub.state.berth_state.initialize_platform_states(platform_list)
         
         entities.append(TrainDescriberStatusSensor(hass, entry, hub))
         entities.append(TrainDescriberRawJsonSensor(hass, entry, hub))
@@ -536,20 +530,11 @@ class TrainDescriberAreaSensor(SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         area_berths = self.hub.state.berth_state.get_area_berths(self._area_id)
         
-        # Get configured platforms for this area
-        options = self.entry.options
-        td_platforms_config = options.get(CONF_TD_PLATFORMS, {})
-        selected_platforms = td_platforms_config.get(self._area_id, [])
+        # Get platform states (all platforms, no filtering)
+        platform_states = self.hub.state.berth_state.get_all_platform_states()
         
-        # Get platform states
-        platform_states = self.hub.state.berth_state.get_all_platform_states(
-            selected_platforms if selected_platforms else None
-        )
-        
-        # Get event history (filtered by platform if configured)
-        event_history = self.hub.state.berth_state.get_event_history(
-            selected_platforms if selected_platforms else None
-        )
+        # Get event history (all events, no filtering)
+        event_history = self.hub.state.berth_state.get_event_history()
         
         # Get SMART data for station information if available
         smart_manager = self.hass.data.get(DOMAIN, {}).get(f"{self.entry.entry_id}_smart_manager")
@@ -567,7 +552,6 @@ class TrainDescriberAreaSensor(SensorEntity):
             "area_id": self._area_id,
             "station_name": station_name,
             "station_code": station_code,
-            "selected_platforms": selected_platforms if selected_platforms else "all",
             "berth_count": len(area_berths),
             "occupied_berths": {},
         }

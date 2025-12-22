@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2025-12-22
+
+### Changed
+- **BREAKING CHANGE**: Removed TD Platforms configuration feature
+  - The platform configuration UI (Configure TD Platforms) has been removed
+  - All platforms in configured TD areas are now automatically tracked
+  - The `selected_platforms` attribute has been removed from TD area sensors
+  - Platform and event filtering is now done in templates/automations for maximum flexibility
+  - Existing configurations with platform settings will continue to work (settings are ignored)
+  
+### Removed
+- `CONF_TD_PLATFORMS` configuration constant
+- `DEFAULT_PLATFORM_RANGE_MIN` and `DEFAULT_PLATFORM_RANGE_MAX` constants
+- `async_step_configure_td_platforms()` config flow method
+- Platform filtering from `get_event_history()` and `get_all_platform_states()` methods
+- `initialize_platform_states()` method from BerthState class
+
+### Migration Guide
+- No action required - existing installations will continue to work
+- Remove any references to `selected_platforms` attribute in your templates/automations
+- Update templates to filter platforms as needed using Jinja2 filters:
+  ```yaml
+  # Old (no longer available):
+  {{ state_attr('sensor.td_area_sk', 'selected_platforms') }}
+  
+  # New (filter in template):
+  {% set events = state_attr('sensor.td_area_sk', 'recent_events') %}
+  {{ events | selectattr('to_platform', 'in', ['1', '2', '3']) | list }}
+  ```
+
 ## [1.6.2] - 2025-12-21
 
 ### Fixed

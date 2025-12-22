@@ -70,6 +70,35 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
         self._current_diagram_action: str | None = None  # Track current diagram action
         self._diagram_to_edit: dict | None = None  # Track diagram being edited
     
+    def _migrate_diagram_config(self, opts: dict) -> dict:
+        """Migrate old single-diagram format to new list format if needed.
+        
+        Args:
+            opts: The options dictionary to migrate
+            
+        Returns:
+            The migrated options dictionary
+        """
+        if CONF_DIAGRAM_ENABLED in opts and CONF_DIAGRAM_CONFIGS not in opts:
+            # Migrate old format to new format
+            diagram_configs = []
+            if opts.get(CONF_DIAGRAM_ENABLED, False):
+                old_stanox = opts.get(CONF_DIAGRAM_STANOX)
+                old_range = opts.get(CONF_DIAGRAM_RANGE, 1)
+                if old_stanox:
+                    diagram_configs.append({
+                        "stanox": old_stanox,
+                        "enabled": True,
+                        "range": old_range
+                    })
+            opts = opts.copy()
+            opts[CONF_DIAGRAM_CONFIGS] = diagram_configs
+            # Remove old keys
+            opts.pop(CONF_DIAGRAM_ENABLED, None)
+            opts.pop(CONF_DIAGRAM_STANOX, None)
+            opts.pop(CONF_DIAGRAM_RANGE, None)
+        return opts
+    
     async def async_step_init(self, user_input=None) -> FlowResult:
         """Manage the options - main menu."""
         if user_input is not None:
@@ -110,31 +139,13 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             if td_areas:
                 description += f" (tracking {len(td_areas)} area(s))"
         
-        # Add network diagram status - handle both old and new format
         # Perform migration if needed
-        if CONF_DIAGRAM_ENABLED in opts and CONF_DIAGRAM_CONFIGS not in opts:
-            # Migrate old format to new format
-            diagram_configs = []
-            if opts.get(CONF_DIAGRAM_ENABLED, False):
-                old_stanox = opts.get(CONF_DIAGRAM_STANOX)
-                old_range = opts.get(CONF_DIAGRAM_RANGE, 1)
-                if old_stanox:
-                    diagram_configs.append({
-                        "stanox": old_stanox,
-                        "enabled": True,
-                        "range": old_range
-                    })
-            opts_copy = opts.copy()
-            opts_copy[CONF_DIAGRAM_CONFIGS] = diagram_configs
-            # Remove old keys
-            opts_copy.pop(CONF_DIAGRAM_ENABLED, None)
-            opts_copy.pop(CONF_DIAGRAM_STANOX, None)
-            opts_copy.pop(CONF_DIAGRAM_RANGE, None)
-            # Update entry
+        opts = self._migrate_diagram_config(opts)
+        if opts != self.config_entry.options:
+            # Options were migrated, update entry
             self.hass.config_entries.async_update_entry(
-                self.config_entry, options=opts_copy
+                self.config_entry, options=opts
             )
-            opts = opts_copy
         
         # Show network diagram status
         diagram_configs = opts.get(CONF_DIAGRAM_CONFIGS, [])
@@ -436,25 +447,10 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
         """Configure Network Diagram sensor options - main menu."""
         opts = self.config_entry.options.copy()
         
-        # Ensure migration has happened
-        if CONF_DIAGRAM_ENABLED in opts and CONF_DIAGRAM_CONFIGS not in opts:
-            # Migrate old format to new format
-            diagram_configs = []
-            if opts.get(CONF_DIAGRAM_ENABLED, False):
-                old_stanox = opts.get(CONF_DIAGRAM_STANOX)
-                old_range = opts.get(CONF_DIAGRAM_RANGE, 1)
-                if old_stanox:
-                    diagram_configs.append({
-                        "stanox": old_stanox,
-                        "enabled": True,
-                        "range": old_range
-                    })
-            opts[CONF_DIAGRAM_CONFIGS] = diagram_configs
-            # Remove old keys
-            opts.pop(CONF_DIAGRAM_ENABLED, None)
-            opts.pop(CONF_DIAGRAM_STANOX, None)
-            opts.pop(CONF_DIAGRAM_RANGE, None)
-            # Update entry
+        # Perform migration if needed
+        opts = self._migrate_diagram_config(opts)
+        if opts != self.config_entry.options:
+            # Options were migrated, update entry
             self.hass.config_entries.async_update_entry(
                 self.config_entry, options=opts
             )
@@ -626,13 +622,11 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             if "diagram_enabled" in user_input and self._diagram_to_edit is not None:
                 # Update the diagram
                 stanox = self._diagram_to_edit.get("stanox")
-                for i, diagram in enumerate(diagram_configs):
+                for diagram in diagram_configs:
                     if diagram.get("stanox") == stanox:
-                        diagram_configs[i] = {
-                            "stanox": stanox,
-                            "enabled": user_input.get("diagram_enabled", True),
-                            "range": user_input.get("diagram_range", 1),
-                        }
+                        # Update individual keys to preserve any future additions
+                        diagram["enabled"] = user_input.get("diagram_enabled", True)
+                        diagram["range"] = user_input.get("diagram_range", 1)
                         break
                 
                 opts[CONF_DIAGRAM_CONFIGS] = diagram_configs

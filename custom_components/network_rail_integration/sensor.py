@@ -21,6 +21,9 @@ from .const import (
     CONF_STANOX_FILTER,
     CONF_ENABLE_TD,
     CONF_TD_AREAS,
+    CONF_DIAGRAM_ENABLED,
+    CONF_DIAGRAM_STANOX,
+    CONF_DIAGRAM_RANGE,
 )
 from .toc_codes import get_toc_name, get_direction_description, get_line_description
 from .stanox_utils import get_station_name
@@ -64,6 +67,15 @@ async def async_setup_entry(
         td_areas = options.get(CONF_TD_AREAS, [])
         for area_id in td_areas:
             entities.append(TrainDescriberAreaSensor(hass, entry, hub, area_id))
+    
+    # Add Network Diagram sensor if enabled
+    if options.get(CONF_DIAGRAM_ENABLED, False):
+        diagram_stanox = options.get(CONF_DIAGRAM_STANOX)
+        diagram_range = options.get(CONF_DIAGRAM_RANGE, 1)
+        if diagram_stanox:
+            smart_manager = hass.data[DOMAIN].get(f"{entry.entry_id}_smart_manager")
+            if smart_manager:
+                entities.append(NetworkDiagramSensor(hass, entry, hub, smart_manager, diagram_stanox, diagram_range))
     
     # Add debug log sensor
     debug_sensor = DebugLogSensor(hass, entry)
@@ -593,4 +605,264 @@ class TrainDescriberRawJsonSensor(SensorEntity):
             "area_id": msg.get("area_id"),
             "time": msg.get("time"),
             "time_local": _ms_to_local_iso(msg.get("time")),
+        }
+
+
+class NetworkDiagramSensor(SensorEntity):
+    """Sensor showing network diagram with berth occupancy."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:map-marker-path"
+
+    def __init__(
+        self, 
+        hass: HomeAssistant, 
+        entry: ConfigEntry, 
+        hub, 
+        smart_manager,
+        center_stanox: str,
+        diagram_range: int = 1
+    ) -> None:
+        self.hass = hass
+        self.entry = entry
+        self.hub = hub
+        self.smart_manager = smart_manager
+        self._center_stanox = center_stanox
+        self._diagram_range = diagram_range
+        self._attr_name = f"Network Diagram {center_stanox}"
+        self._unsub = None
+
+    async def async_added_to_hass(self) -> None:
+        # Subscribe to TD messages for berth updates
+        self._unsub = async_dispatcher_connect(self.hass, DISPATCH_TD, self._handle_update)
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub:
+            self._unsub()
+            self._unsub = None
+
+    @callback
+    def _handle_update(self, parsed_message: dict[str, Any]) -> None:
+        """Handle TD message update."""
+        self.async_write_ha_state()
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self.entry.entry_id}_diagram_{self._center_stanox}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.entry.entry_id)},
+            name="Network Rail Integration",
+            manufacturer="Network Rail",
+            model="Network Diagram",
+        )
+
+    @property
+    def native_value(self) -> int:
+        """Return the count of currently occupied berths in the diagram area."""
+        if not self.smart_manager.is_available():
+            return 0
+        
+        # Get all berths in the diagram area
+        graph = self.smart_manager.get_graph()
+        berth_state = self.hub.state.berth_state
+        
+        # Get berths for center station and adjacent stations
+        all_berths = self._get_all_diagram_berths(graph)
+        
+        # Count occupied berths
+        occupied_count = 0
+        for berth_key in all_berths:
+            parts = berth_key.split(":", 1)
+            if len(parts) == 2:
+                td_area, berth_id = parts
+                berth_data = berth_state.get_berth(td_area, berth_id)
+                if berth_data:
+                    occupied_count += 1
+        
+        return occupied_count
+
+    def _get_all_diagram_berths(self, graph: dict[str, Any]) -> set[str]:
+        """Get all berth keys in the diagram area."""
+        from .smart_utils import get_berths_for_stanox
+        
+        all_berths = set()
+        
+        # Get berths for center station
+        center_berths = get_berths_for_stanox(graph, self._center_stanox)
+        for berth_info in center_berths:
+            td_area = berth_info.get("td_area", "")
+            from_berth = berth_info.get("from_berth", "")
+            to_berth = berth_info.get("to_berth", "")
+            if from_berth and td_area:
+                all_berths.add(f"{td_area}:{from_berth}")
+            if to_berth and td_area:
+                all_berths.add(f"{td_area}:{to_berth}")
+        
+        # Get berths for adjacent stations (based on diagram_range)
+        # For now, we'll get immediately adjacent stations
+        # In a more sophisticated implementation, this would expand based on diagram_range
+        from .smart_utils import get_station_berths_with_connections
+        
+        station_data = get_station_berths_with_connections(graph, self._center_stanox)
+        
+        # Add berths from up connections
+        for conn in station_data.get("up_connections", [])[:self._diagram_range]:
+            conn_stanox = conn.get("stanox")
+            if conn_stanox:
+                conn_berths = get_berths_for_stanox(graph, conn_stanox)
+                for berth_info in conn_berths:
+                    td_area = berth_info.get("td_area", "")
+                    from_berth = berth_info.get("from_berth", "")
+                    to_berth = berth_info.get("to_berth", "")
+                    if from_berth and td_area:
+                        all_berths.add(f"{td_area}:{from_berth}")
+                    if to_berth and td_area:
+                        all_berths.add(f"{td_area}:{to_berth}")
+        
+        # Add berths from down connections
+        for conn in station_data.get("down_connections", [])[:self._diagram_range]:
+            conn_stanox = conn.get("stanox")
+            if conn_stanox:
+                conn_berths = get_berths_for_stanox(graph, conn_stanox)
+                for berth_info in conn_berths:
+                    td_area = berth_info.get("td_area", "")
+                    from_berth = berth_info.get("from_berth", "")
+                    to_berth = berth_info.get("to_berth", "")
+                    if from_berth and td_area:
+                        all_berths.add(f"{td_area}:{from_berth}")
+                    if to_berth and td_area:
+                        all_berths.add(f"{td_area}:{to_berth}")
+        
+        return all_berths
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return detailed diagram attributes."""
+        if not self.smart_manager.is_available():
+            return {
+                "smart_data_available": False,
+                "smart_data_last_updated": None,
+                "center_stanox": self._center_stanox,
+            }
+        
+        graph = self.smart_manager.get_graph()
+        berth_state = self.hub.state.berth_state
+        
+        from .smart_utils import get_berths_for_stanox, get_station_berths_with_connections
+        
+        # Get station data with connections
+        station_data = get_station_berths_with_connections(graph, self._center_stanox)
+        
+        # Build center berths with occupancy
+        center_berths = []
+        for berth_info in station_data.get("berths", []):
+            berth_id = berth_info.get("berth_id", "")
+            td_area = berth_info.get("td_area", "")
+            
+            # Get occupancy from live TD data
+            occupied = False
+            headcode = None
+            if td_area and berth_id:
+                berth_data = berth_state.get_berth(td_area, berth_id)
+                if berth_data:
+                    occupied = True
+                    headcode = berth_data.get("description")
+            
+            center_berths.append({
+                "berth_id": berth_id,
+                "td_area": td_area,
+                "platform": berth_info.get("platform", ""),
+                "occupied": occupied,
+                "headcode": headcode,
+            })
+        
+        # Build up stations with occupancy
+        up_stations = []
+        for conn in station_data.get("up_connections", [])[:self._diagram_range]:
+            conn_stanox = conn.get("stanox")
+            conn_name = conn.get("stanme", "")
+            
+            conn_berths = []
+            if conn_stanox:
+                conn_berth_data = get_berths_for_stanox(graph, conn_stanox)
+                for berth_info in conn_berth_data:
+                    td_area = berth_info.get("td_area", "")
+                    from_berth = berth_info.get("from_berth", "")
+                    to_berth = berth_info.get("to_berth", "")
+                    
+                    # Check both from and to berths
+                    for berth_id in [from_berth, to_berth]:
+                        if berth_id and td_area:
+                            occupied = False
+                            headcode = None
+                            berth_data = berth_state.get_berth(td_area, berth_id)
+                            if berth_data:
+                                occupied = True
+                                headcode = berth_data.get("description")
+                            
+                            conn_berths.append({
+                                "berth_id": berth_id,
+                                "td_area": td_area,
+                                "occupied": occupied,
+                                "headcode": headcode,
+                            })
+            
+            up_stations.append({
+                "stanox": conn_stanox,
+                "name": conn_name,
+                "berths": conn_berths,
+            })
+        
+        # Build down stations with occupancy
+        down_stations = []
+        for conn in station_data.get("down_connections", [])[:self._diagram_range]:
+            conn_stanox = conn.get("stanox")
+            conn_name = conn.get("stanme", "")
+            
+            conn_berths = []
+            if conn_stanox:
+                conn_berth_data = get_berths_for_stanox(graph, conn_stanox)
+                for berth_info in conn_berth_data:
+                    td_area = berth_info.get("td_area", "")
+                    from_berth = berth_info.get("from_berth", "")
+                    to_berth = berth_info.get("to_berth", "")
+                    
+                    # Check both from and to berths
+                    for berth_id in [from_berth, to_berth]:
+                        if berth_id and td_area:
+                            occupied = False
+                            headcode = None
+                            berth_data = berth_state.get_berth(td_area, berth_id)
+                            if berth_data:
+                                occupied = True
+                                headcode = berth_data.get("description")
+                            
+                            conn_berths.append({
+                                "berth_id": berth_id,
+                                "td_area": td_area,
+                                "occupied": occupied,
+                                "headcode": headcode,
+                            })
+            
+            down_stations.append({
+                "stanox": conn_stanox,
+                "name": conn_name,
+                "berths": conn_berths,
+            })
+        
+        last_updated = self.smart_manager.get_last_updated()
+        
+        return {
+            "center_stanox": self._center_stanox,
+            "center_name": station_data.get("stanme", ""),
+            "center_berths": center_berths,
+            "up_stations": up_stations,
+            "down_stations": down_stations,
+            "smart_data_available": True,
+            "smart_data_last_updated": last_updated.isoformat() if last_updated else None,
+            "diagram_range": self._diagram_range,
         }

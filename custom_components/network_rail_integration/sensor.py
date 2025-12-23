@@ -548,6 +548,7 @@ class TrainDescriberAreaSensor(SensorEntity):
             stanox_to_berths = graph.get("stanox_to_berths", {})
             
             # Find all unique stations in this TD area
+            # Note: For large datasets, consider caching or indexing by TD area
             found_stations = set()
             for stanox, berth_records in stanox_to_berths.items():
                 for record in berth_records:

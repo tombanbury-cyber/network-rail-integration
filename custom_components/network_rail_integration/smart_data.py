@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import gzip
 import json
 import logging
 import os
@@ -64,20 +66,107 @@ class SmartDataManager:
         try:
             _LOGGER.info("Downloading SMART data from %s", SMART_DATA_URL)
             
-            auth = aiohttp.BasicAuth(self.username, self.password)
-            timeout = aiohttp.ClientTimeout(total=30)
+            # Create Basic Auth header manually to avoid aiohttp auto-sending it on redirects
+            auth_string = f"{self.username}:{self.password}"
+            auth_bytes = auth_string.encode('utf-8')
+            auth_header = base64.b64encode(auth_bytes).decode('ascii')
             
-            async with aiohttp.ClientSession(auth=auth, timeout=timeout) as session:
-                async with session.get(SMART_DATA_URL) as response:
+            timeout = aiohttp.ClientTimeout(total=60)
+            
+            # Step 1: Request from authenticating proxy with Basic Auth, but disable auto-redirects
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                headers = {"Authorization": f"Basic {auth_header}"}
+                
+                _LOGGER.debug("Requesting SMART data with Basic Auth (redirects disabled)")
+                async with session.get(
+                    SMART_DATA_URL,
+                    headers=headers,
+                    allow_redirects=False
+                ) as response:
+                    _LOGGER.debug("Initial response status: %d", response.status)
+                    
+                    # Check for authentication failure
                     if response.status == 401:
-                        _LOGGER.error("Authentication failed when downloading SMART data (401 Unauthorized)")
-                        return False
-                    elif response.status != 200:
-                        _LOGGER.error("Failed to download SMART data: HTTP %d", response.status)
+                        response_text = await response.text()
+                        _LOGGER.error(
+                            "Authentication failed when downloading SMART data (401 Unauthorized). "
+                            "Response: %s",
+                            response_text[:500]
+                        )
                         return False
                     
-                    content = await response.text()
-                    _LOGGER.debug("Downloaded %d bytes of SMART data", len(content))
+                    # Check if it's a redirect
+                    if response.status in (301, 302, 303, 307, 308):
+                        redirect_url = response.headers.get("Location")
+                        if not redirect_url:
+                            _LOGGER.error("Redirect response missing Location header")
+                            return False
+                        
+                        _LOGGER.debug("Following redirect to: %s", redirect_url)
+                        
+                        # Step 2: Follow redirect to S3 WITHOUT auth headers
+                        async with session.get(redirect_url) as s3_response:
+                            _LOGGER.debug("S3 response status: %d", s3_response.status)
+                            
+                            if s3_response.status != 200:
+                                error_text = await s3_response.text()
+                                _LOGGER.error(
+                                    "Failed to download SMART data from S3: HTTP %d. Response: %s",
+                                    s3_response.status,
+                                    error_text[:500]
+                                )
+                                return False
+                            
+                            # Read response as bytes (may be gzip compressed)
+                            raw_data = await s3_response.read()
+                            _LOGGER.debug("Downloaded %d bytes from S3", len(raw_data))
+                            
+                            # Check if data is gzip compressed (magic bytes: 0x1f 0x8b)
+                            if len(raw_data) >= 2 and raw_data[0] == 0x1f and raw_data[1] == 0x8b:
+                                _LOGGER.debug("Data is gzip compressed, decompressing...")
+                                try:
+                                    decompressed = gzip.decompress(raw_data)
+                                    content = decompressed.decode('utf-8')
+                                    _LOGGER.debug(
+                                        "Decompressed %d bytes to %d bytes",
+                                        len(raw_data),
+                                        len(decompressed)
+                                    )
+                                except Exception as exc:
+                                    _LOGGER.error("Failed to decompress gzip data: %s", exc)
+                                    return False
+                            else:
+                                # Not compressed, decode as UTF-8
+                                _LOGGER.debug("Data is not gzip compressed")
+                                try:
+                                    content = raw_data.decode('utf-8')
+                                except UnicodeDecodeError as exc:
+                                    _LOGGER.error("Failed to decode data as UTF-8: %s", exc)
+                                    return False
+                    
+                    elif response.status == 200:
+                        # No redirect, data returned directly (unlikely but handle it)
+                        _LOGGER.debug("No redirect, reading data directly from initial response")
+                        raw_data = await response.read()
+                        
+                        # Check if gzip compressed
+                        if len(raw_data) >= 2 and raw_data[0] == 0x1f and raw_data[1] == 0x8b:
+                            _LOGGER.debug("Data is gzip compressed, decompressing...")
+                            decompressed = gzip.decompress(raw_data)
+                            content = decompressed.decode('utf-8')
+                        else:
+                            content = raw_data.decode('utf-8')
+                    
+                    else:
+                        error_text = await response.text()
+                        _LOGGER.error(
+                            "Unexpected response status %d. Response: %s",
+                            response.status,
+                            error_text[:500]
+                        )
+                        return False
+            
+            _LOGGER.debug("Successfully retrieved SMART data, size: %d bytes", len(content))
             
             # Parse the data
             if not self._parse_smart_data(content):
@@ -98,7 +187,7 @@ class SmartDataManager:
             _LOGGER.error("Network error downloading SMART data: %s", exc)
             return False
         except Exception as exc:
-            _LOGGER.error("Unexpected error downloading SMART data: %s", exc)
+            _LOGGER.error("Unexpected error downloading SMART data: %s", exc, exc_info=True)
             return False
     
     def _parse_smart_data(self, content: str) -> bool:

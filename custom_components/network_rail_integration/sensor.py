@@ -27,7 +27,7 @@ from .const import (
 )
 from .toc_codes import get_toc_name, get_direction_description, get_line_description
 from .stanox_utils import get_station_name, get_formatted_station_name
-from .td_area_codes import format_td_area_title
+from .td_area_codes import format_td_area_title, get_td_area_name
 from .debug_log import DebugLogSensor
 
 
@@ -570,8 +570,7 @@ class TrainDescriberAreaSensor(SensorEntity):
         
         # Fallback to TD area name if no SMART data or no stations found
         if not station_name:
-            from .td_area_codes import get_td_area_name
-            station_name = get_td_area_name(self._area_id)
+            station_name = get_td_area_name(self._area_id) or f"TD Area {self._area_id}"
             station_code = self._area_id
         
         attrs = {

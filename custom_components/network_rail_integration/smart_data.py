@@ -57,6 +57,39 @@ class SmartDataManager:
         _LOGGER.info("SMART data cache is stale or missing, downloading fresh data")
         return await self.refresh_data()
     
+    def _decompress_and_decode(self, raw_data: bytes) -> str | None:
+        """Decompress gzip data if needed and decode to UTF-8.
+        
+        Args:
+            raw_data: Raw bytes from response
+            
+        Returns:
+            Decoded string content, or None if decompression/decoding failed
+        """
+        try:
+            # Check if data is gzip compressed (magic bytes: 0x1f 0x8b)
+            if len(raw_data) >= 2 and raw_data[0] == 0x1f and raw_data[1] == 0x8b:
+                _LOGGER.debug("Data is gzip compressed, decompressing...")
+                decompressed = gzip.decompress(raw_data)
+                content = decompressed.decode('utf-8')
+                _LOGGER.debug(
+                    "Decompressed %d bytes to %d bytes",
+                    len(raw_data),
+                    len(decompressed)
+                )
+                return content
+            else:
+                # Not compressed, decode as UTF-8
+                _LOGGER.debug("Data is not gzip compressed")
+                content = raw_data.decode('utf-8')
+                return content
+        except gzip.error as exc:
+            _LOGGER.error("Failed to decompress gzip data: %s", exc)
+            return None
+        except UnicodeDecodeError as exc:
+            _LOGGER.error("Failed to decode data as UTF-8: %s", exc)
+            return None
+    
     async def refresh_data(self) -> bool:
         """Download fresh SMART data from Network Rail.
         
@@ -121,41 +154,20 @@ class SmartDataManager:
                             raw_data = await s3_response.read()
                             _LOGGER.debug("Downloaded %d bytes from S3", len(raw_data))
                             
-                            # Check if data is gzip compressed (magic bytes: 0x1f 0x8b)
-                            if len(raw_data) >= 2 and raw_data[0] == 0x1f and raw_data[1] == 0x8b:
-                                _LOGGER.debug("Data is gzip compressed, decompressing...")
-                                try:
-                                    decompressed = gzip.decompress(raw_data)
-                                    content = decompressed.decode('utf-8')
-                                    _LOGGER.debug(
-                                        "Decompressed %d bytes to %d bytes",
-                                        len(raw_data),
-                                        len(decompressed)
-                                    )
-                                except Exception as exc:
-                                    _LOGGER.error("Failed to decompress gzip data: %s", exc)
-                                    return False
-                            else:
-                                # Not compressed, decode as UTF-8
-                                _LOGGER.debug("Data is not gzip compressed")
-                                try:
-                                    content = raw_data.decode('utf-8')
-                                except UnicodeDecodeError as exc:
-                                    _LOGGER.error("Failed to decode data as UTF-8: %s", exc)
-                                    return False
+                            # Decompress and decode the data
+                            content = self._decompress_and_decode(raw_data)
+                            if content is None:
+                                return False
                     
                     elif response.status == 200:
                         # No redirect, data returned directly (unlikely but handle it)
                         _LOGGER.debug("No redirect, reading data directly from initial response")
                         raw_data = await response.read()
                         
-                        # Check if gzip compressed
-                        if len(raw_data) >= 2 and raw_data[0] == 0x1f and raw_data[1] == 0x8b:
-                            _LOGGER.debug("Data is gzip compressed, decompressing...")
-                            decompressed = gzip.decompress(raw_data)
-                            content = decompressed.decode('utf-8')
-                        else:
-                            content = raw_data.decode('utf-8')
+                        # Decompress and decode the data
+                        content = self._decompress_and_decode(raw_data)
+                        if content is None:
+                            return False
                     
                     else:
                         error_text = await response.text()

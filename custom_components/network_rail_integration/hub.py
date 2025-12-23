@@ -191,7 +191,7 @@ class OpenRailDataHub:
 
                 # Check if list contains TD messages (dicts with *_MSG keys)
                 # TD messages arrive in list format like train movements
-                if payload and isinstance(payload[0], dict):
+                if len(payload) > 0 and isinstance(payload[0], dict):
                     # Check if first item looks like a TD message
                     first_item = payload[0]
                     has_td_msg_key = any(key.endswith("_MSG") for key in first_item.keys())
@@ -199,12 +199,17 @@ class OpenRailDataHub:
                     if has_td_msg_key:
                         self._hub.debug_logger.debug("Received list with TD messages, processing %d items", len(payload))
                         # Process each TD message in the list
+                        # _handle_td_message will validate each message is actually a TD message
+                        td_count = 0
                         for item in payload:
-                            if isinstance(item, dict):
-                                self._handle_td_message(item)
-                        # Mark as seen and return early to prevent train movement processing
-                        self._mark_seen(len(payload))
-                        return
+                            if isinstance(item, dict) and self._handle_td_message(item):
+                                td_count += 1
+                        
+                        # If we processed any TD messages, mark as seen and return
+                        if td_count > 0:
+                            self._hub.debug_logger.debug("Processed %d TD messages from list", td_count)
+                            self._mark_seen(len(payload))
+                            return
 
                 options = _read_options()
                 stanox_filter = (options.get(CONF_STANOX_FILTER) or "").strip()

@@ -1,4 +1,4 @@
-# Network Rail Integration – Home Assistant Integration
+# Network Rail – Home Assistant Integration
 
 Connects to Network Rail's public **STOMP** broker and subscribes to:
 - **Train Movements** (default topic: `TRAIN_MVT_ALL_TOC`) - Real-time train arrival, departure, and passing events

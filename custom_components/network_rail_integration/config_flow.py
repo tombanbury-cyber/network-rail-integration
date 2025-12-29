@@ -11,6 +11,7 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_ENABLE_TD,
+    CONF_ENABLE_VSTP,
     CONF_EVENT_TYPES,
     CONF_PASSWORD,
     CONF_STANOX_FILTER,
@@ -24,6 +25,12 @@ from .const import (
     CONF_DIAGRAM_ENABLED,
     CONF_DIAGRAM_STANOX,
     CONF_DIAGRAM_RANGE,
+    CONF_TRACK_SECTIONS,
+    CONF_TRACK_SECTION_NAME,
+    CONF_TRACK_SECTION_CENTER_STANOX,
+    CONF_TRACK_SECTION_BERTH_RANGE,
+    CONF_TRACK_SECTION_TD_AREAS,
+    CONF_TRACK_SECTION_ALERT_SERVICES,
     DEFAULT_TOPIC,
     DEFAULT_TD_EVENT_HISTORY_SIZE,
     DOMAIN,
@@ -65,6 +72,8 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
         self._search_results: list[dict[str, str]] = []
         self._current_diagram_action: str | None = None  # Track current diagram action
         self._diagram_to_edit: dict | None = None  # Track diagram being edited
+        self._track_section_center: dict | None = None  # Track selected center for track section
+        self._track_section_to_configure: str | None = None  # Track section being configured
     
     def _migrate_diagram_config(self, opts: dict) -> dict:
         """Migrate old single-diagram format to new list format if needed.
@@ -107,8 +116,16 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                 return await self.async_step_configure_filters()
             elif action == "configure_train_describer":
                 return await self.async_step_configure_train_describer()
+            elif action == "configure_vstp":
+                return await self.async_step_configure_vstp()
             elif action == "configure_network_diagrams":
                 return await self.async_step_configure_network_diagrams()
+            elif action == "add_track_section":
+                return await self.async_step_add_track_section()
+            elif action == "remove_track_section":
+                return await self.async_step_remove_track_section()
+            elif action == "configure_track_section_alerts":
+                return await self.async_step_configure_track_section_alerts()
             
             return self.async_create_entry(title="", data=self.config_entry.options)
         
@@ -132,6 +149,20 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             description += f"\n\nTrain Describer: Enabled"
             if td_areas:
                 description += f" (tracking {len(td_areas)} area(s))"
+        
+        # Add VSTP status if enabled
+        if opts.get(CONF_ENABLE_VSTP, False):
+            description += f"\n\nVSTP Feed: Enabled"
+        
+        # Add Track Section status
+        from .const import CONF_TRACK_SECTIONS
+        track_sections = opts.get(CONF_TRACK_SECTIONS, [])
+        if track_sections:
+            description += f"\n\nTrack Sections: {len(track_sections)} configured"
+            for section in track_sections:
+                name = section.get("name", "Unknown")
+                stanox = section.get("center_stanox", "")
+                description += f"\n  • {name} (center: {stanox})"
         
         # Perform migration if needed
         opts = self._migrate_diagram_config(opts)
@@ -163,7 +194,11 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                             {"label": "Remove Station", "value": "remove_station"},
                             {"label": "Configure Filters (TOC, Event Types)", "value": "configure_filters"},
                             {"label": "Configure Train Describer", "value": "configure_train_describer"},
+                            {"label": "Configure VSTP Feed", "value": "configure_vstp"},
                             {"label": "Configure Network Diagrams", "value": "configure_network_diagrams"},
+                            {"label": "Add Track Section", "value": "add_track_section"},
+                            {"label": "Remove Track Section", "value": "remove_track_section"},
+                            {"label": "Configure Track Section Alerts", "value": "configure_track_section_alerts"},
                         ],
                         mode=selector.SelectSelectorMode.LIST,
                     ),
@@ -751,5 +786,309 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             errors=errors,
             description_placeholders={
                 "description": "⚠️ Warning: This action cannot be undone.\n\nSelect a diagram to delete."
+            }
+        )
+    
+    async def async_step_configure_vstp(self, user_input=None) -> FlowResult:
+        """Configure VSTP feed options."""
+        if user_input is not None:
+            opts = self.config_entry.options.copy()
+            opts[CONF_ENABLE_VSTP] = user_input.get(CONF_ENABLE_VSTP, False)
+            
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, options=opts
+            )
+            return self.async_create_entry(title="", data=opts)
+        
+        opts = self.config_entry.options
+        
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_ENABLE_VSTP,
+                    default=opts.get(CONF_ENABLE_VSTP, False)
+                ): bool,
+            }
+        )
+        return self.async_show_form(
+            step_id="configure_vstp",
+            data_schema=schema,
+            description_placeholders={
+                "description": "Enable VSTP (Very Short Term Plan) feed to receive real-time train schedule data.\n\nThis provides additional information about trains including:\n- Origin and destination\n- Train category and service type\n- Scheduled platform and timing\n- Train operator\n\nVSTP data is used by Track Section Monitor to enrich train information and detect special services (freight, RHTT, steam, etc.)."
+            }
+        )
+    
+    async def async_step_add_track_section(self, user_input=None) -> FlowResult:
+        """Add a new track section to monitor."""
+        errors = {}
+        
+        if user_input is not None:
+            # User selected a STANOX from search results
+            if "selected_stanox" in user_input and user_input["selected_stanox"]:
+                stanox = user_input["selected_stanox"]
+                station_name = "Unknown"
+                for result in self._search_results:
+                    if result["stanox"] == stanox:
+                        station_name = result["stanme"]
+                        break
+                
+                # Store selected center station and move to next step
+                self._track_section_center = {
+                    "stanox": stanox,
+                    "name": station_name
+                }
+                return await self.async_step_add_track_section_config()
+            
+            # User entered a search query
+            if "station_query" in user_input and user_input["station_query"]:
+                query = user_input["station_query"]
+                self._search_results = await search_stanox(query, 50)
+                
+                if not self._search_results:
+                    errors["station_query"] = "no_results"
+        
+        # Build options from search results
+        if self._search_results:
+            options = [
+                {
+                    "label": f"{r['stanme']} ({r['stanox']})",
+                    "value": r["stanox"],
+                }
+                for r in self._search_results
+            ]
+            
+            schema = vol.Schema(
+                {
+                    vol.Optional("selected_stanox"): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=options,
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                        ),
+                    ),
+                    vol.Optional("station_query"): str,
+                }
+            )
+        else:
+            schema = vol.Schema(
+                {
+                    vol.Required("station_query"): str,
+                }
+            )
+        
+        return self.async_show_form(
+            step_id="add_track_section",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "description": "Search for a station to use as the center of the track section.\n\nThe track section will monitor trains passing through berths near this station."
+            }
+        )
+    
+    async def async_step_add_track_section_config(self, user_input=None) -> FlowResult:
+        """Configure track section details."""
+        if user_input is not None:
+            opts = self.config_entry.options.copy()
+            track_sections = opts.get(CONF_TRACK_SECTIONS, [])
+            
+            # Parse comma-separated TD areas
+            td_areas_str = user_input.get("td_areas", "")
+            if td_areas_str:
+                td_areas = [area.strip().upper() for area in td_areas_str.split(",") if area.strip()]
+            else:
+                td_areas = []
+            
+            # Create new track section
+            track_section = {
+                "name": user_input.get("name"),
+                "center_stanox": self._track_section_center["stanox"],
+                "berth_range": user_input.get("berth_range", 3),
+                "td_areas": td_areas,
+                "alert_services": {
+                    "freight": False,
+                    "rhtt": False,
+                    "steam": False,
+                    "charter": False,
+                    "pullman": False,
+                    "royal_train": False,
+                }
+            }
+            
+            track_sections.append(track_section)
+            opts[CONF_TRACK_SECTIONS] = track_sections
+            
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, options=opts
+            )
+            return self.async_create_entry(title="", data=opts)
+        
+        center_name = self._track_section_center.get("name", "Unknown")
+        center_stanox = self._track_section_center.get("stanox", "")
+        
+        schema = vol.Schema(
+            {
+                vol.Required("name"): str,
+                vol.Optional("berth_range", default=3): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1,
+                        max=10,
+                        mode=selector.NumberSelectorMode.BOX,
+                    ),
+                ),
+                vol.Optional("td_areas", default=""): str,
+            }
+        )
+        
+        return self.async_show_form(
+            step_id="add_track_section_config",
+            data_schema=schema,
+            description_placeholders={
+                "description": f"Configure track section centered at: {center_name} ({center_stanox})\n\n"
+                               f"**Name**: Give this track section a friendly name (e.g., 'Canterbury West Platforms')\n\n"
+                               f"**Berth Range**: Number of berths to monitor in each direction from the center (default: 3)\n\n"
+                               f"**TD Areas**: Comma-separated list of Train Describer area IDs to monitor (e.g., 'SK, CT'). Leave empty to auto-detect from SMART data."
+            }
+        )
+    
+    async def async_step_remove_track_section(self, user_input=None) -> FlowResult:
+        """Remove a track section from monitoring."""
+        opts = self.config_entry.options.copy()
+        track_sections = opts.get(CONF_TRACK_SECTIONS, [])
+        
+        if not track_sections:
+            return await self.async_step_init()
+        
+        if user_input is not None:
+            if "remove_section" in user_input and user_input["remove_section"]:
+                section_name = user_input["remove_section"]
+                track_sections = [s for s in track_sections if s.get("name") != section_name]
+                opts[CONF_TRACK_SECTIONS] = track_sections
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, options=opts
+                )
+                return self.async_create_entry(title="", data=opts)
+        
+        # Build list of track sections to remove
+        options = []
+        for section in track_sections:
+            name = section.get("name", "Unknown")
+            stanox = section.get("center_stanox", "")
+            station_name = await get_formatted_station_name_async(stanox) or stanox
+            options.append({
+                "label": f"{name} (center: {station_name} - {stanox})",
+                "value": name,
+            })
+        
+        schema = vol.Schema(
+            {
+                vol.Required("remove_section"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    ),
+                ),
+            }
+        )
+        
+        return self.async_show_form(
+            step_id="remove_track_section",
+            data_schema=schema,
+        )
+    
+    async def async_step_configure_track_section_alerts(self, user_input=None) -> FlowResult:
+        """Configure which service types trigger alerts for track sections."""
+        opts = self.config_entry.options.copy()
+        track_sections = opts.get(CONF_TRACK_SECTIONS, [])
+        
+        if not track_sections:
+            return await self.async_step_init()
+        
+        if user_input is not None:
+            section_name = user_input.get("section_name")
+            
+            # Find the section and update alert services
+            for section in track_sections:
+                if section.get("name") == section_name:
+                    section["alert_services"] = {
+                        "freight": user_input.get("alert_freight", False),
+                        "rhtt": user_input.get("alert_rhtt", False),
+                        "steam": user_input.get("alert_steam", False),
+                        "charter": user_input.get("alert_charter", False),
+                        "pullman": user_input.get("alert_pullman", False),
+                        "royal_train": user_input.get("alert_royal_train", False),
+                    }
+                    break
+            
+            opts[CONF_TRACK_SECTIONS] = track_sections
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, options=opts
+            )
+            return self.async_create_entry(title="", data=opts)
+        
+        # First step: select which section to configure
+        if not hasattr(self, "_track_section_to_configure"):
+            options = []
+            for section in track_sections:
+                name = section.get("name", "Unknown")
+                stanox = section.get("center_stanox", "")
+                station_name = await get_formatted_station_name_async(stanox) or stanox
+                options.append({
+                    "label": f"{name} (center: {station_name})",
+                    "value": name,
+                })
+            
+            schema = vol.Schema(
+                {
+                    vol.Required("section_name"): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=options,
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                        ),
+                    ),
+                }
+            )
+            
+            return self.async_show_form(
+                step_id="configure_track_section_alerts",
+                data_schema=schema,
+                description_placeholders={
+                    "description": "Select a track section to configure alert settings."
+                }
+            )
+        
+        # Second step: configure alerts for selected section
+        section_name = self._track_section_to_configure
+        section = next((s for s in track_sections if s.get("name") == section_name), None)
+        
+        if not section:
+            return await self.async_step_init()
+        
+        alert_services = section.get("alert_services", {})
+        
+        schema = vol.Schema(
+            {
+                vol.Optional("alert_freight", default=alert_services.get("freight", False)): bool,
+                vol.Optional("alert_rhtt", default=alert_services.get("rhtt", False)): bool,
+                vol.Optional("alert_steam", default=alert_services.get("steam", False)): bool,
+                vol.Optional("alert_charter", default=alert_services.get("charter", False)): bool,
+                vol.Optional("alert_pullman", default=alert_services.get("pullman", False)): bool,
+                vol.Optional("alert_royal_train", default=alert_services.get("royal_train", False)): bool,
+            }
+        )
+        
+        stanox = section.get("center_stanox", "")
+        station_name = await get_formatted_station_name_async(stanox) or stanox
+        
+        return self.async_show_form(
+            step_id="configure_track_section_alerts",
+            data_schema=schema,
+            description_placeholders={
+                "description": f"Configure alert triggers for: {section_name} ({station_name})\n\n"
+                               f"Select which service types should trigger alerts:\n\n"
+                               f"**Freight**: All freight trains (0xxx, 4xxx, 6xxx, 7xxx headcodes)\n"
+                               f"**RHTT**: Rail Head Treatment Trains (3Hxx, 3Yxx headcodes)\n"
+                               f"**Steam**: Steam charter services (often 1Zxx headcodes)\n"
+                               f"**Charter**: General charter/special services (1Zxx headcodes)\n"
+                               f"**Pullman**: Luxury/Pullman services\n"
+                               f"**Royal Train**: Royal train services (1X99 headcode)"
             }
         )

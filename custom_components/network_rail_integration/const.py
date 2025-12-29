@@ -1,6 +1,6 @@
 """Constants for the Network Rail integration."""
 
-DOMAIN = "network_rail_integration"
+DOMAIN = "homeassistant_network_rail_uk"
 
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"

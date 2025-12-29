@@ -3,6 +3,7 @@
 Connects to Network Rail's public **STOMP** broker and subscribes to:
 - **Train Movements** (default topic: `TRAIN_MVT_ALL_TOC`) - Real-time train arrival, departure, and passing events
 - **Train Describer** (optional topic: `TD_ALL_SIG_AREA`) - Real-time signalling berth occupancy for network diagrams
+- **VSTP** (optional topic: `VSTP_ALL`) - Very Short Term Plan schedule data for train enrichment (NEW in v1.12.0)
 - **SMART Data** (NEW in v1.7.0) - Berth topology data for creating Traksy-style network diagrams
 
 ## Features
@@ -15,6 +16,17 @@ Monitor train positions through signalling berths for creating live railway netw
 
 ### Network Diagrams (NEW in v1.7.0)
 Visualize train positions on a map of berth connections showing adjacent stations and real-time occupancy. Uses Network Rail's SMART data to build topology graphs. See [NETWORK_DIAGRAMS.md](NETWORK_DIAGRAMS.md) for detailed documentation.
+
+### Track Section Monitor (NEW in v1.12.0)
+Monitor trains along defined track sections with intelligent service classification and alerts. Enriched with VSTP schedule data to identify freight, RHTT, steam specials, and named trains. Fire Home Assistant events when specific service types enter your monitored sections. See [TRACK_SECTION_MONITOR.md](TRACK_SECTION_MONITOR.md) for comprehensive documentation.
+
+**Key capabilities:**
+- Real-time train tracking through signalling berths
+- Automatic service classification (freight, passenger, ECS, RHTT, steam, charter)
+- Configurable alerts for specific train types
+- VSTP schedule enrichment (origin, destination, operator, timing)
+- Home Assistant event triggers for automation
+- Multiple concurrent track sections
 
 ## Entities
 
@@ -32,10 +44,14 @@ The integration creates the following entities:
 ### Network Diagrams (NEW in v1.7.0, when enabled)
 - **Sensor**: `sensor.network_rail_integration_diagram_<stanox>` - Network diagram showing berth occupancy at a station and adjacent stations
 
+### Track Section Monitor (NEW in v1.12.0, when configured)
+- **Sensor (per section)**: `sensor.network_rail_integration_track_section_<section_name>` - Trains currently in the monitored track section with service classification and timing data
+
 ### Debug and Diagnostics
 - **Sensor**: `sensor.network_rail_integration_debug_log` - Recent log messages for debugging (shows last 50 entries)
 
 See [TRAIN_DESCRIBER.md](TRAIN_DESCRIBER.md) for more information about the Train Describer feed and multi-platform tracking.
+See [TRACK_SECTION_MONITOR.md](TRACK_SECTION_MONITOR.md) for comprehensive Track Section Monitor documentation.
 
 ### Entity Naming
 

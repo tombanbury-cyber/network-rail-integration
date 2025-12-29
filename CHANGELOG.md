@@ -5,6 +5,80 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - 2025-12-29
+
+### Added
+- **Track Section Monitor**: Comprehensive feature for monitoring trains along defined track sections
+  - Real-time train tracking through Train Describer berth data
+  - Automatic service classification (freight, passenger, ECS, RHTT, steam, charter, royal train)
+  - VSTP schedule enrichment with origin, destination, operator, and timing data
+  - Configurable alerts for specific service types (freight, RHTT, steam, pullman, royal train)
+  - Home Assistant event system (`homeassistant_network_rail_uk_track_alert`) for automation
+  - Multiple concurrent track section monitoring
+  - See [TRACK_SECTION_MONITOR.md](TRACK_SECTION_MONITOR.md) for full documentation
+
+- **VSTP Feed Support**: Very Short Term Plan schedule data integration
+  - Subscribe to `VSTP_ALL` topic via STOMP
+  - Parse and store VSTP schedule messages (CIF format in JSON)
+  - Index schedules by train_uid and headcode
+  - Automatic schedule validity checking for current day
+  - Schedule lookup methods for correlating live trains with schedules
+
+- **Service Classification Module** (`service_classifier.py`):
+  - Train category classification from VSTP CIF codes
+  - Headcode pattern matching for service identification
+  - Special service detection (RHTT, steam, royal train, named trains, pullman)
+  - Support for both VSTP category codes and headcode-based detection
+  - Freight train detection (0xxx, 4xxx, 6xxx, 7xxx patterns)
+  - Charter train detection (1Zxx patterns)
+  - Empty coaching stock detection (5xxx patterns)
+
+- **VSTP Manager Module** (`vstp_manager.py`):
+  - VstpManager class for VSTP schedule management
+  - Schedule caching with automatic daily cleanup
+  - Schedule indexing by train UID and headcode
+  - Origin/destination extraction from schedules
+  - Next scheduled stop calculation
+
+- **Configuration Flow Enhancements**:
+  - "Configure VSTP Feed" menu option to enable/disable VSTP subscription
+  - "Add Track Section" multi-step wizard (station search → configuration)
+  - "Remove Track Section" for managing configured sections
+  - "Configure Track Section Alerts" for per-section alert settings
+  - Alert service type selectors (freight, RHTT, steam, charter, pullman, royal train)
+
+- **New Constants**:
+  - `CONF_ENABLE_VSTP`: Enable VSTP feed
+  - `CONF_TRACK_SECTIONS`: Track section configurations
+  - `CONF_TRACK_SECTION_*`: Track section configuration keys
+  - `DEFAULT_VSTP_TOPIC`: VSTP_ALL topic
+  - `DISPATCH_VSTP`: VSTP message dispatcher
+  - `DISPATCH_TRACK_SECTION`: Track section event dispatcher
+
+- **TrackSectionSensor Entity**:
+  - Tracks trains entering, moving through, and leaving defined sections
+  - State: Number of trains currently in section
+  - Rich attributes: trains list with service details, section config, alert counts
+  - Integration with VSTP manager for schedule enrichment
+  - Automatic SMART data berth calculation
+  - Event firing for matching alert services
+
+### Changed
+- **Hub**: Added VSTP topic subscription (subscription ID 3)
+- **Hub**: VSTP message routing to VstpManager
+- **Hub**: Message handling now checks VSTP first, then TD, then train movements
+- **Init**: Initialize VSTP manager when enabled in options
+- **Sensor**: Register TrackSectionSensor entities for each configured section
+- **Manifest**: Version bumped to 1.12.0
+
+### Technical Details
+- VSTP messages processed in real-time via STOMP subscription
+- Schedule data indexed in memory for fast lookups
+- Service classification uses both VSTP CIF categories and headcode patterns
+- Track sections calculate berths using SMART topology data
+- Events fired asynchronously for automation triggers
+- All new features are optional and backwards compatible
+
 ## [1.11.2] - 2025-12-23
 
 ### Fixed

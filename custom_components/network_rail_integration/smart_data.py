@@ -221,7 +221,12 @@ class SmartDataManager:
                 _LOGGER.debug("Parsed SMART data as JSON array")
                 return True
             elif isinstance(data, dict):
-                # Single object, wrap in list
+                # Check if this is a wrapper object with BERTHDATA key
+                if "BERTHDATA" in data and isinstance(data["BERTHDATA"], list):
+                    self._data = data["BERTHDATA"]
+                    _LOGGER.debug("Parsed SMART data from BERTHDATA wrapper")
+                    return True
+                # Single object without BERTHDATA, wrap in list
                 self._data = [data]
                 _LOGGER.debug("Parsed SMART data as single JSON object")
                 return True

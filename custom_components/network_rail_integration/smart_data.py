@@ -223,8 +223,13 @@ class SmartDataManager:
             elif isinstance(data, dict):
                 # Check if this is a wrapper object with BERTHDATA key
                 if "BERTHDATA" in data and isinstance(data["BERTHDATA"], list):
-                    self._data = data["BERTHDATA"]
-                    _LOGGER.debug("Parsed SMART data from BERTHDATA wrapper")
+                    berthdata = data["BERTHDATA"]
+                    # Validate that BERTHDATA is not empty
+                    if not berthdata:
+                        _LOGGER.warning("BERTHDATA array is empty")
+                        return False
+                    self._data = berthdata
+                    _LOGGER.debug("Parsed SMART data from BERTHDATA wrapper (%d records)", len(berthdata))
                     return True
                 # Single object without BERTHDATA, wrap in list
                 self._data = [data]

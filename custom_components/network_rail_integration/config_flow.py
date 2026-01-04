@@ -602,14 +602,20 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
         opts = self.config_entry.options.copy()
         diagram_configs = opts.get(CONF_DIAGRAM_CONFIGS, [])
         
+        _LOGGER.info("async_step_add_diagram called with user_input: %s", user_input)
+        _LOGGER.info("Current diagram_configs: %s", diagram_configs)
+        
         if user_input is not None:
             # User selected a STANOX from search results
             if "selected_stanox" in user_input and user_input["selected_stanox"]:
                 stanox = user_input["selected_stanox"]
                 
+                _LOGGER.info("User selected stanox: %s", stanox)
+                
                 # Check if diagram for this STANOX already exists
                 if any(d.get("stanox") == stanox for d in diagram_configs):
                     errors["selected_stanox"] = "diagram_already_exists"
+                    _LOGGER.warning("Diagram for stanox %s already exists", stanox)
                 else:
                     # Add the new diagram
                     new_diagram = {
@@ -617,18 +623,25 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                         "enabled": user_input.get("diagram_enabled", True),
                         "range": user_input.get("diagram_range", 1),
                     }
+                    _LOGGER.info("Creating new diagram:  %s", new_diagram)
                     diagram_configs.append(new_diagram)
                     opts[CONF_DIAGRAM_CONFIGS] = diagram_configs
+                    
+                    _LOGGER.info("Updated diagram_configs: %s", diagram_configs)
+                    _LOGGER.info("Updated opts: %s", opts)
                     
                     self.hass.config_entries.async_update_entry(
                         self.config_entry, options=opts
                     )
+                    _LOGGER.info("Config entry updated, returning to configure_network_diagrams")
                     return await self.async_step_configure_network_diagrams()
             
             # User entered a search query
             if "station_query" in user_input and user_input["station_query"]:
                 query = user_input["station_query"]
+                _LOGGER.info("User searching for station: %s", query)
                 self._search_results = await search_stanox(query, 50)
+                _LOGGER.info("Search returned %d results", len(self._search_results))
                 
                 if not self._search_results:
                     errors["station_query"] = "no_results"

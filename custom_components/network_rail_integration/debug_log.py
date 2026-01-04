@@ -38,11 +38,12 @@ class DebugLogSensor(SensorEntity):
         entry = {
             "timestamp": timestamp,
             "level": level,
-            "message": message,
+            "message":  message,
         }
         self._log_entries.append(entry)
-        # Schedule state update safely from any thread
-        self.hass.loop.call_soon_threadsafe(self.schedule_update_ha_state)
+        # Schedule state update safely from any thread, but only if the loop is still running
+        if self. hass.loop and not self.hass.loop.is_closed():
+            self.hass.loop.call_soon_threadsafe(self.schedule_update_ha_state)
 
     @property
     def unique_id(self) -> str:

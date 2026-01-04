@@ -13,6 +13,8 @@ CONF_FIX_DST_QUIRK = "fix_dst_quirk"
 CONF_ENABLE_TD = "enable_td"  # Enable Train Describer feed
 CONF_TD_AREAS = "td_areas"  # List of TD area IDs to track
 CONF_TD_EVENT_HISTORY_SIZE = "td_event_history_size"  # Number of events to keep per area
+CONF_ENABLE_DEBUG_SENSOR = "enable_debug_sensor"  # Enable Debug Log Sensor
+CONF_ENABLE_TD_RAW_JSON = "enable_td_raw_json"  # Enable Train Describer Raw JSON Sensor
 CONF_DIAGRAM_CONFIGS = "diagram_configs"  # List of diagram configurations
 # Deprecated constants (kept for migration)
 CONF_DIAGRAM_ENABLED = "diagram_enabled"

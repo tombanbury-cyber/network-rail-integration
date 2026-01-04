@@ -53,13 +53,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     
-    # After platforms are set up, connect the debug sensor to the logger
+    # After platforms are set up, connect the debug sensor to the logger if enabled
     debug_sensor = hass.data[DOMAIN].get(f"{entry.entry_id}_debug_sensor")
     if debug_sensor:
         debug_logger.set_sensor(debug_sensor)
         debug_logger.info("Debug sensor connected to logger")
     else:
-        _LOGGER.warning("Debug sensor not found, debug logging to UI will not be available")
+        # Debug sensor disabled or not created - logs will only go to standard logger
+        debug_logger.info("Debug sensor not enabled, debug logging will only appear in standard logs")
     
     # Register services
     async def handle_refresh_smart_data(call: ServiceCall) -> None:

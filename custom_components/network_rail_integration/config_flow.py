@@ -34,6 +34,8 @@ from .const import (
     CONF_TRACK_SECTION_BERTH_RANGE,
     CONF_TRACK_SECTION_TD_AREAS,
     CONF_TRACK_SECTION_ALERT_SERVICES,
+    CONF_ENABLE_DEBUG_SENSOR,
+    CONF_ENABLE_TD_RAW_JSON,
     DEFAULT_TOPIC,
     DEFAULT_TD_EVENT_HISTORY_SIZE,
     DEFAULT_TD_MAX_BATCH_SIZE,
@@ -132,6 +134,8 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                 return await self.async_step_remove_track_section()
             elif action == "configure_track_section_alerts":
                 return await self.async_step_configure_track_section_alerts()
+            elif action == "configure_advanced":
+                return await self.async_step_configure_advanced()
             
             return self.async_create_entry(title="", data=self.config_entry.options)
         
@@ -205,6 +209,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                             {"label": "Add Track Section", "value": "add_track_section"},
                             {"label": "Remove Track Section", "value": "remove_track_section"},
                             {"label": "Configure Track Section Alerts", "value": "configure_track_section_alerts"},
+                            {"label": "Advanced Settings", "value": "configure_advanced"},
                         ],
                         mode=selector.SelectSelectorMode.LIST,
                     ),
@@ -440,6 +445,9 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             opts[CONF_TD_MAX_BATCH_SIZE] = user_input.get(CONF_TD_MAX_BATCH_SIZE, DEFAULT_TD_MAX_BATCH_SIZE)
             opts[CONF_TD_MAX_MESSAGES_PER_SECOND] = user_input.get(CONF_TD_MAX_MESSAGES_PER_SECOND, DEFAULT_TD_MAX_MESSAGES_PER_SECOND)
             
+            # Store raw JSON sensor toggle
+            opts[CONF_ENABLE_TD_RAW_JSON] = user_input.get(CONF_ENABLE_TD_RAW_JSON, True)
+            
             return self.async_create_entry(title="", data=opts)
         
         opts = self.config_entry.options
@@ -502,6 +510,10 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                         mode=selector.NumberSelectorMode.BOX,
                     ),
                 ),
+                vol.Optional(
+                    CONF_ENABLE_TD_RAW_JSON,
+                    default=opts.get(CONF_ENABLE_TD_RAW_JSON, True)
+                ): bool,
             }
         )
         return self.async_show_form(
@@ -511,6 +523,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                 "description": "Enable Train Describer feed to track train positions through signalling berths.\n\n"
                               "**TD Areas**: Comma-separated list (e.g., 'SK, G1, RW'). Leave empty to track all areas.\n\n"
                               "**Event History Size**: Number of recent TD events kept per area (1-50, default: 10).\n\n"
+                              "**Enable Raw JSON Sensor**: Creates a sensor showing raw JSON from Train Describer messages (useful for debugging, default: enabled).\n\n"
                               "**Performance Settings** (prevent GUI lockup with high-volume feeds):\n"
                               "• **Update Interval**: Minimum seconds between sensor updates (1-10s, default: 3s). Higher = less CPU usage.\n"
                               "• **Max Batch Size**: Messages collected before dispatch (10-200, default: 50). Higher = more efficient batching.\n"
@@ -1160,5 +1173,36 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                                f"**Charter**: General charter/special services (1Zxx headcodes)\n"
                                f"**Pullman**: Luxury/Pullman services\n"
                                f"**Royal Train**: Royal train services (1X99 headcode)"
+            }
+        )
+    
+    async def async_step_configure_advanced(self, user_input=None) -> FlowResult:
+        """Configure advanced settings (debug sensor, etc)."""
+        if user_input is not None:
+            opts = self.config_entry.options.copy()
+            opts[CONF_ENABLE_DEBUG_SENSOR] = user_input.get(CONF_ENABLE_DEBUG_SENSOR, True)
+            
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, options=opts
+            )
+            return self.async_create_entry(title="", data=opts)
+        
+        opts = self.config_entry.options
+        
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_ENABLE_DEBUG_SENSOR,
+                    default=opts.get(CONF_ENABLE_DEBUG_SENSOR, True)
+                ): bool,
+            }
+        )
+        return self.async_show_form(
+            step_id="configure_advanced",
+            data_schema=schema,
+            description_placeholders={
+                "description": "Configure advanced integration settings.\n\n"
+                              "**Enable Debug Log Sensor**: Creates a sensor showing recent debug logs in the UI (default: enabled).\n\n"
+                              "Note: Disabling this sensor will reduce entity count but debug logs will still appear in Home Assistant logs."
             }
         )

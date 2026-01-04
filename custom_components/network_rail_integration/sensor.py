@@ -25,6 +25,8 @@ from .const import (
     CONF_TD_EVENT_HISTORY_SIZE,
     CONF_TD_UPDATE_INTERVAL,
     CONF_DIAGRAM_CONFIGS,
+    CONF_ENABLE_DEBUG_SENSOR,
+    CONF_ENABLE_TD_RAW_JSON,
     DEFAULT_TD_EVENT_HISTORY_SIZE,
     DEFAULT_TD_UPDATE_INTERVAL,
 )
@@ -91,7 +93,10 @@ async def async_setup_entry(
             hub.state.berth_state.set_berth_to_platform_mapping(berth_platform_mapping)
         
         entities.append(TrainDescriberStatusSensor(hass, entry, hub))
-        entities.append(TrainDescriberRawJsonSensor(hass, entry, hub))
+        
+        # Add raw JSON sensor if enabled
+        if options.get(CONF_ENABLE_TD_RAW_JSON, True):  # Default to True for backward compatibility
+            entities.append(TrainDescriberRawJsonSensor(hass, entry, hub))
         
         # Create sensors for specific TD areas if configured
         td_areas = options.get(CONF_TD_AREAS, [])
@@ -119,12 +124,13 @@ async def async_setup_entry(
             if section_name:
                 entities.append(TrackSectionSensor(hass, entry, hub, section, vstp_manager, smart_manager))
     
-    # Add debug log sensor
-    debug_sensor = DebugLogSensor(hass, entry)
-    entities.append(debug_sensor)
-    
-    # Store debug sensor reference in hass.data for access by the hub
-    hass.data[DOMAIN][f"{entry.entry_id}_debug_sensor"] = debug_sensor
+    # Add debug log sensor if enabled
+    if options.get(CONF_ENABLE_DEBUG_SENSOR, True):  # Default to True for backward compatibility
+        debug_sensor = DebugLogSensor(hass, entry)
+        entities.append(debug_sensor)
+        
+        # Store debug sensor reference in hass.data for access by the hub
+        hass.data[DOMAIN][f"{entry.entry_id}_debug_sensor"] = debug_sensor
     
     async_add_entities(entities, True)
 

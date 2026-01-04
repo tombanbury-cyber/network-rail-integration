@@ -39,7 +39,7 @@ class SmartDataManager:
         
         # Cache file path in integration directory
         config_dir = Path(hass.config.path())
-        integration_dir = config_dir / "custom_components" / DOMAIN
+        integration_dir = config_dir / "custom_components" / "homeassistant_network_rail_uk"
         self.cache_path = integration_dir / SMART_CACHE_FILE
         
     async def load_data(self) -> bool:

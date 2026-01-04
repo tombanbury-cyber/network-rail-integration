@@ -98,6 +98,11 @@ class OpenRailDataHub:
         if self._thread and self._thread.is_alive():
             await self.hass.async_add_executor_job(self._thread.join, 5)
 
+    @property
+    def is_connected(self) -> bool:
+        """Return if hub is connected to STOMP broker."""
+        return self.state.connected
+    
     def _thread_main(self) -> None:
         """Blocking thread loop to manage STOMP connection."""
         try:

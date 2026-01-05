@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import voluptuous as vol
+import logging
+
+_LOGGER = logging.getLogger(__name__)
 
 from homeassistant import config_entries
 from homeassistant.core import callback

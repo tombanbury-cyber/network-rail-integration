@@ -181,7 +181,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
         opts = self._migrate_diagram_config(opts)
         if opts != self.config_entry.options:
             # Options were migrated, update entry
-            self.hass.config_entries.async_update_entry(
+            self.hass.config_entries.(
                 self.config_entry, options=opts
             )
         
@@ -633,11 +633,8 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                     _LOGGER.info("Updated diagram_configs: %s", diagram_configs)
                     _LOGGER.info("Updated opts: %s", opts)
                     
-                    self.hass.config_entries.async_update_entry(
-                        self.config_entry, options=opts
-                    )
-                    _LOGGER.info("Config entry updated, returning to configure_network_diagrams")
-                    return await self.async_step_configure_network_diagrams()
+                    _LOGGER.info("Saving options and creating entry")
+                    return self.async_create_entry(title="", data=opts)
             
             # User entered a search query
             if "station_query" in user_input and user_input["station_query"]:

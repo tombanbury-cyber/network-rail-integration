@@ -1,0 +1,4 @@
+refresh_smart_data:
+  name: Refresh SMART data
+  description: Manually download and refresh SMART berth topology data used for network diagrams. 
+  fields:  {}

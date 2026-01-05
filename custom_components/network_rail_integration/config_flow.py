@@ -685,11 +685,9 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                         break
                 
                 opts[CONF_DIAGRAM_CONFIGS] = diagram_configs
-                self.hass.config_entries.async_update_entry(
-                    self.config_entry, options=opts
-                )
                 self._diagram_to_edit = None
-                return await self.async_step_configure_network_diagrams()
+                _LOGGER.info("Returning from options flow with updated diagram configs: %s", opts[CONF_DIAGRAM_CONFIGS])
+                return self.async_create_entry(title="", data=opts)
             
             # User selected a diagram to edit
             if "select_diagram" in user_input and user_input["select_diagram"]:
@@ -787,10 +785,8 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                 diagram_configs = [d for d in diagram_configs if d.get("stanox") != stanox_to_delete]
                 opts[CONF_DIAGRAM_CONFIGS] = diagram_configs
                 
-                self.hass.config_entries.async_update_entry(
-                    self.config_entry, options=opts
-                )
-                return await self.async_step_configure_network_diagrams()
+                _LOGGER.info("Returning from options flow with updated diagram configs: %s", opts[CONF_DIAGRAM_CONFIGS])
+                return self.async_create_entry(title="", data=opts)
         
         # Show selection of diagrams to delete
         diagram_options = []

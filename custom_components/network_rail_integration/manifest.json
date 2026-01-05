@@ -1,7 +1,7 @@
 {
   "domain": "homeassistant_network_rail_uk",
   "name": "Network Rail Integration",
-  "version": "1.13.5",
+  "version": "1.13.6",
   "documentation": "https://github.com/tombanbury-cyber/homeassistant-network-rail-uk",
   "issue_tracker": "https://github.com/tombanbury-cyber/homeassistant-network-rail-uk/issues",
   "config_flow": true,

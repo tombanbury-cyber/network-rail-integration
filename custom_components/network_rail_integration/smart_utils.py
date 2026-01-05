@@ -234,7 +234,8 @@ def get_station_berths_with_connections(
     #
     # Users should be aware that the "up_connections" and "down_connections" 
     # labels are approximate and may not match official railway terminology.
-    mid = len(adjacent_stations) // 2
+    #mid = len(adjacent_stations) // 2
+    mid = (len(adjacent_stations) + 1) // 2
     
     return {
         "stanox": stanox,

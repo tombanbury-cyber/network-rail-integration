@@ -1000,6 +1000,71 @@ class NetworkDiagramSensor(SensorEntity):
         
         return all_berths
 
+
+
+    def _build_station_berths_with_occupancy(
+        self,
+        connections: list[dict[str, Any]],
+        graph: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Build list of stations with berth occupancy data. 
+        
+        Args:
+            connections: List of connection dictionaries with 'stanox' keys
+            graph:  SMART data graph
+            
+        Returns: 
+            List of station dictionaries with berth occupancy
+        """
+        from .smart_utils import get_berths_for_stanox
+        
+        berth_state = self.hub.state.berth_state
+        stations = []
+        
+        # Only include stations up to diagram_range
+        for conn in connections[: self._diagram_range]:
+            stanox = conn. get("stanox")
+            if not stanox:
+                continue
+            
+            # Get berths for this station
+            station_berths = get_berths_for_stanox(graph, stanox)
+            
+            # Build berth list with occupancy
+            berths_list = []
+            for berth_info in station_berths: 
+                berth_id = berth_info.get("from_berth") or berth_info.get("to_berth")
+                td_area = berth_info. get("td_area", "")
+                
+                if not berth_id or not td_area:
+                    continue
+                
+                # Get occupancy from live TD data
+                occupied = False
+                headcode = None
+                berth_data = berth_state.get_berth(td_area, berth_id)
+                if berth_data:
+                    occupied = True
+                    headcode = berth_data.get("description")
+                
+                berths_list.append({
+                    "berth_id": berth_id,
+                    "td_area": td_area,
+                    "platform": berth_info.get("platform", ""),
+                    "occupied": occupied,
+                    "headcode": headcode,
+                })
+            
+            stations.append({
+                "stanox": stanox,
+                "name": conn.get("stanme", ""),
+                "berths":  berths_list,
+            })
+        
+        return stations
+
+    
+
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return detailed diagram attributes."""

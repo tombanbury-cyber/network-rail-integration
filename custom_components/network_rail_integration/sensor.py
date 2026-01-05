@@ -46,6 +46,10 @@ async def async_setup_entry(
 ) -> None:
     # Preload STANOX data to avoid blocking I/O later
     await load_stanox_data()
+
+    _LOGGER.info("=== async_setup_entry called for sensors ===")
+    _LOGGER.info("Entry ID: %s", entry.entry_id)
+    _LOGGER.info("Entry options: %s", entry.options)
     
     hub = hass.data[DOMAIN][entry.entry_id]
     

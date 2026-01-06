@@ -204,7 +204,7 @@ def get_station_berths_with_connections(
     _LOGGER.info("Center station average berth number: %.1f", avg_center)
     
     # Use multi-hop discovery to find adjacent stations (within 3 berth hops)
-    _LOGGER.info("Starting multi-hop discovery (max 3 hops)...")
+    _LOGGER.info("Starting multi-hop discovery (max %d hops)...", max_hops)
     adjacent_stations = find_adjacent_stations_multihop(graph, berth_keys, stanox, max_hops=max_hops)
     
     _LOGGER.info("Found %d adjacent stations:", len(adjacent_stations))

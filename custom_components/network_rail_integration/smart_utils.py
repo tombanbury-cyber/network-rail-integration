@@ -73,9 +73,9 @@ def find_adjacent_stations_multihop(
     center_stanox: str,
     max_hops: int = 3
 ) -> dict[str, int]:
-    """Find stations within max_hops berth steps from center station. 
+    """Find stations within max_hops berth steps from center station.  
     
-    Returns: 
+    Returns:  
         Dictionary mapping stanox -> hop_distance
     """
     from collections import deque
@@ -92,7 +92,11 @@ def find_adjacent_stations_multihop(
         queue.append((berth_key, 0))
         visited_berths.add(berth_key)
     
-    while queue:
+    _LOGGER.debug("Multi-hop:  Starting from %d center berths", len(center_berth_keys))
+    
+    hop_counts = {0: len(center_berth_keys)}
+    
+    while queue: 
         current_berth, distance = queue.popleft()
         
         # Stop if we've gone too far
@@ -102,8 +106,8 @@ def find_adjacent_stations_multihop(
         connections = berth_to_connections. get(current_berth, {})
         
         # Check both "from" and "to" connections
-        for direction in ["from", "to"]: 
-            for conn in connections.get(direction, []):
+        for direction in ["from", "to"]:  
+            for conn in connections. get(direction, []):
                 conn_td_area = conn.get("td_area", "")
                 conn_berth = conn.get("berth", "")
                 
@@ -116,26 +120,34 @@ def find_adjacent_stations_multihop(
                 # Found a station (not the center)
                 if conn_stanox and conn_stanox != center_stanox:
                     # Record this station if not seen or closer
-                    if conn_stanox not in adjacent_stations or distance + 1 < adjacent_stations[conn_stanox]:
+                    if conn_stanox not in adjacent_stations or distance + 1 < adjacent_stations[conn_stanox]: 
                         adjacent_stations[conn_stanox] = distance + 1
                 
                 # Continue exploring from this berth
                 if conn_key not in visited_berths:
                     visited_berths.add(conn_key)
                     queue.append((conn_key, distance + 1))
+                    hop_counts[distance + 1] = hop_counts.get(distance + 1, 0) + 1
+    
+    _LOGGER. debug("Multi-hop:  Visited %d berths across hops:  %s", len(visited_berths), hop_counts)
     
     return adjacent_stations
 
 
+# hello
 
 def get_station_berths_with_connections(
     graph: dict[str, Any], 
-    stanox:  str
+    stanox:  str,
+    max_hops: int = 3
 ) -> dict[str, Any]:
     """Get comprehensive station berth data including adjacent stations."""
     berth_to_connections = graph.get("berth_to_connections", {})
     berth_to_stanox = graph.get("berth_to_stanox", {})
     stanox_to_berths = graph.get("stanox_to_berths", {})
+    
+    _LOGGER.info("=" * 80)
+    _LOGGER.info("Getting station berths with connections for STANOX: %s", stanox)
     
     # Get berths for this station
     berth_records = stanox_to_berths.get(stanox, [])
@@ -144,6 +156,8 @@ def get_station_berths_with_connections(
     stanme = ""
     if berth_records:
         stanme = berth_records[0].get("stanme", "")
+    
+    _LOGGER.info("Center station: %s (%s), %d berth records", stanme, stanox, len(berth_records))
     
     # Build list of berths for this station
     berths = []
@@ -159,11 +173,11 @@ def get_station_berths_with_connections(
             berth_key = f"{td_area}:{from_berth}"
             if berth_key not in berth_keys:
                 berth_keys.add(berth_key)
-                berths.append({
+                berths. append({
                     "berth_id": from_berth,
-                    "td_area": td_area,
+                    "td_area":  td_area,
                     "platform": record.get("platform", ""),
-                    "event": record.get("event", ""),
+                    "event":  record.get("event", ""),
                 })
         
         if to_berth and td_area:
@@ -171,11 +185,13 @@ def get_station_berths_with_connections(
             if berth_key not in berth_keys:
                 berth_keys.add(berth_key)
                 berths.append({
-                    "berth_id": to_berth,
+                    "berth_id":  to_berth,
                     "td_area": td_area,
-                    "platform":  record.get("platform", ""),
+                    "platform": record.get("platform", ""),
                     "event": record.get("event", ""),
                 })
+    
+    _LOGGER.info("Center station berths: %s", sorted([b["berth_id"] for b in berths]))
     
     # Calculate average berth number for center station (for direction heuristic)
     center_berth_nums = []
@@ -183,11 +199,19 @@ def get_station_berths_with_connections(
         for berth_field in ["from_berth", "to_berth"]:
             berth = rec.get(berth_field, "")
             if berth and berth.isdigit():
-                center_berth_nums.append(int(berth))
+                center_berth_nums. append(int(berth))
     avg_center = sum(center_berth_nums) / len(center_berth_nums) if center_berth_nums else 0
+    _LOGGER.info("Center station average berth number: %.1f", avg_center)
     
     # Use multi-hop discovery to find adjacent stations (within 3 berth hops)
-    adjacent_stations = find_adjacent_stations_multihop(graph, berth_keys, stanox, max_hops=3)
+    _LOGGER.info("Starting multi-hop discovery (max 3 hops)...")
+    adjacent_stations = find_adjacent_stations_multihop(graph, berth_keys, stanox, max_hops=max_hops)
+    
+    _LOGGER.info("Found %d adjacent stations:", len(adjacent_stations))
+    for adj_stanox, hop_distance in adjacent_stations.items():
+        adj_records = stanox_to_berths.get(adj_stanox, [])
+        adj_name = adj_records[0].get("stanme", "") if adj_records else "Unknown"
+        _LOGGER. info("  - %s (%s) at %d hops", adj_name, adj_stanox, hop_distance)
     
     # Classify stations as UP or DOWN based on berth numbers and line evidence
     up_adjacent_stanox = set()
@@ -198,15 +222,21 @@ def get_station_berths_with_connections(
         if not adj_berth_records: 
             continue
         
+        adj_name = adj_berth_records[0].get("stanme", "")
+        
+        _LOGGER.info("-" * 60)
+        _LOGGER.info("Classifying station:  %s (%s)", adj_name, adj_stanox)
+        
         # Try to determine direction from line names in connections
         up_evidence = 0
         down_evidence = 0
+        line_details = []
         
         # Check all berths of adjacent station for line indicators
         for adj_rec in adj_berth_records: 
             adj_td_area = adj_rec.get("td_area", "")
-            for berth_field in ["from_berth", "to_berth"]:
-                adj_berth = adj_rec.get(berth_field, "")
+            for berth_field in ["from_berth", "to_berth"]: 
+                adj_berth = adj_rec. get(berth_field, "")
                 if not adj_berth or not adj_td_area:
                     continue
                 
@@ -217,74 +247,93 @@ def get_station_berths_with_connections(
                 for direction in ["from", "to"]: 
                     for conn in connections.get(direction, []):
                         conn_line = conn.get("line", "").upper()
+                        conn_berth = conn.get("berth", "")
+                        conn_td_area = conn.get("td_area", "")
+                        
+                        if conn_line: 
+                            line_details.append(f"{direction}:{adj_berth}->{conn_berth} [{conn_line}]")
+                            
                         if "UP" in conn_line: 
                             up_evidence += 1
                         elif "DOWN" in conn_line:
                             down_evidence += 1
         
+        _LOGGER.info("  Line evidence - UP: %d, DOWN: %d", up_evidence, down_evidence)
+        if line_details:
+            _LOGGER.info("  Line details: %s", ", ".join(line_details[: 5]))  # Show first 5
+        
+        # Get berth numbers for comparison
+        adj_berth_nums = []
+        for rec in adj_berth_records:
+            for berth_field in ["from_berth", "to_berth"]:
+                berth = rec.get(berth_field, "")
+                if berth and berth.isdigit():
+                    adj_berth_nums.append(int(berth))
+        
+        avg_adj = sum(adj_berth_nums) / len(adj_berth_nums) if adj_berth_nums else 0
+        _LOGGER.info("  Adjacent station average berth:  %.1f", avg_adj)
+        
         # Decide direction based on evidence or berth numbers
-        if up_evidence > down_evidence:
+        if up_evidence > down_evidence: 
+            _LOGGER.info("  -> Classified as UP (line evidence)")
             up_adjacent_stanox.add(adj_stanox)
-        elif down_evidence > up_evidence: 
+        elif down_evidence > up_evidence:  
+            _LOGGER.info("  -> Classified as DOWN (line evidence)")
             down_adjacent_stanox.add(adj_stanox)
         else:
             # Use berth number heuristic
-            adj_berth_nums = []
-            for rec in adj_berth_records:
-                for berth_field in ["from_berth", "to_berth"]:
-                    berth = rec.get(berth_field, "")
-                    if berth and berth.isdigit():
-                        adj_berth_nums.append(int(berth))
-            
-            if adj_berth_nums and avg_center > 0:
-                avg_adj = sum(adj_berth_nums) / len(adj_berth_nums)
-                
-                # Lower berth number = UP direction (towards London)
-                # Higher berth number = DOWN direction (away from London)
-                if avg_adj < avg_center: 
+            if avg_adj > 0 and avg_center > 0:
+                if avg_adj < avg_center:  
+                    _LOGGER. info("  -> Classified as UP (berth %.1f < center %.1f)", avg_adj, avg_center)
                     up_adjacent_stanox.add(adj_stanox)
                 else:
+                    _LOGGER.info("  -> Classified as DOWN (berth %.1f > center %.1f)", avg_adj, avg_center)
                     down_adjacent_stanox.add(adj_stanox)
             else:
-                # Default to down if we can't determine
+                _LOGGER. info("  -> Classified as DOWN (default)")
                 down_adjacent_stanox.add(adj_stanox)
+    
+    _LOGGER.info("=" * 80)
+    _LOGGER.info("Final classification:")
+    _LOGGER.info("  UP stations: %d", len(up_adjacent_stanox))
+    _LOGGER.info("  DOWN stations: %d", len(down_adjacent_stanox))
     
     # Build station lists
     def build_station_list(stanox_set):
         stations = []
-        for adj_stanox in stanox_set: 
-            adj_berth_records = stanox_to_berths. get(adj_stanox, [])
+        for adj_stanox in stanox_set:  
+            adj_berth_records = stanox_to_berths.get(adj_stanox, [])
             adj_stanme = adj_berth_records[0].get("stanme", "") if adj_berth_records else ""
             
             adj_berths = []
             adj_berth_keys = set()
-            for record in adj_berth_records: 
+            for record in adj_berth_records:  
                 td_area = record.get("td_area", "")
                 from_berth = record.get("from_berth", "")
                 to_berth = record.get("to_berth", "")
                 
                 if from_berth and td_area:
                     berth_key = f"{td_area}:{from_berth}"
-                    if berth_key not in adj_berth_keys: 
+                    if berth_key not in adj_berth_keys:  
                         adj_berth_keys.add(berth_key)
                         adj_berths.append({
                             "berth_id": from_berth,
-                            "td_area":  td_area,
+                            "td_area": td_area,
                         })
                 
-                if to_berth and td_area:
+                if to_berth and td_area: 
                     berth_key = f"{td_area}:{to_berth}"
                     if berth_key not in adj_berth_keys:
                         adj_berth_keys.add(berth_key)
                         adj_berths.append({
-                            "berth_id": to_berth,
+                            "berth_id":  to_berth,
                             "td_area": td_area,
                         })
             
             stations.append({
                 "stanox": adj_stanox,
                 "stanme": adj_stanme,
-                "berths":  adj_berths,
+                "berths": adj_berths,
             })
         return stations
     
@@ -292,14 +341,12 @@ def get_station_berths_with_connections(
     down_connections = build_station_list(down_adjacent_stanox)
     
     return {
-        "stanox":  stanox,
+        "stanox": stanox,
         "stanme": stanme,
         "berths": berths,
         "up_connections": up_connections,
         "down_connections": down_connections,
     }
-
-
 
 
 def get_berth_route(

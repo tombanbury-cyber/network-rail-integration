@@ -74,17 +74,19 @@ class NetworkRailConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        return NetworkRailOptionsFlowHandler()
+        return NetworkRailOptionsFlowHandler(config_entry)
 
 
 class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
-    def __init__(self) -> None:
+    def __init__(self, config_entry) -> None:
         """Initialize options flow."""
+        self.config_entry = config_entry
         self._search_results: list[dict[str, str]] = []
         self._current_diagram_action: str | None = None  # Track current diagram action
         self._diagram_to_edit: dict | None = None  # Track diagram being edited
         self._track_section_center: dict | None = None  # Track selected center for track section
         self._track_section_to_configure: str | None = None  # Track section being configured
+        self._current_opts: dict | None = None  # Track working options across flow steps
         
     
     async def async_step_init(self, user_input=None) -> FlowResult:
@@ -500,7 +502,11 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
     
     async def async_step_configure_network_diagrams(self, user_input=None) -> FlowResult:
         """Configure Network Diagram sensor options - main menu."""
-        opts = self.config_entry.options.copy()
+        # Use working options if available, otherwise load from config entry
+        if self._current_opts is None:
+            self._current_opts = self.config_entry.options.copy()
+        
+        opts = self._current_opts
         
         if user_input is not None:
             action = user_input.get("action")
@@ -512,7 +518,9 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             elif action == "delete":
                 return await self.async_step_delete_diagram()
             elif action == "done":
-                return await self.async_step_init()
+                # Save the working options when exiting
+                _LOGGER.info("Saving final diagram configs: %s", self._current_opts.get(CONF_DIAGRAM_CONFIGS, []))
+                return self.async_create_entry(title="", data=self._current_opts)
         
         # Build description showing current diagrams
         diagram_configs = opts.get(CONF_DIAGRAM_CONFIGS, [])
@@ -558,7 +566,11 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_add_diagram(self, user_input=None) -> FlowResult:
         """Add a new network diagram."""
         errors = {}
-        opts = self.config_entry.options.copy()
+        # Use working options if available, otherwise load from config entry
+        if self._current_opts is None:
+            self._current_opts = self.config_entry.options.copy()
+        
+        opts = self._current_opts
         diagram_configs = opts.get(CONF_DIAGRAM_CONFIGS, [])
         
         _LOGGER.info("async_step_add_diagram called with user_input: %s", user_input)
@@ -586,11 +598,14 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                     diagram_configs.append(new_diagram)
                     opts[CONF_DIAGRAM_CONFIGS] = diagram_configs
                     
-                    _LOGGER.info("Updated diagram_configs: %s", diagram_configs)
-                    _LOGGER.info("Updated opts: %s", opts)
+                    # Store in working options for next operation
+                    self._current_opts = opts
                     
-                    _LOGGER.info("Saving options and creating entry")
-                    return self.async_create_entry(title="", data=opts)
+                    _LOGGER.info("Updated diagram_configs: %s", diagram_configs)
+                    _LOGGER.info("Stored in working options, returning to menu")
+                    
+                    # Return to configure menu with updated options
+                    return await self.async_step_configure_network_diagrams()
             
             # User entered a search query
             if "station_query" in user_input and user_input["station_query"]:
@@ -658,7 +673,11 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_edit_diagram(self, user_input=None) -> FlowResult:
         """Edit an existing network diagram."""
         errors = {}
-        opts = self.config_entry.options.copy()
+        # Use working options
+        if self._current_opts is None:
+            self._current_opts = self.config_entry.options.copy()
+        
+        opts = self._current_opts
         diagram_configs = opts.get(CONF_DIAGRAM_CONFIGS, [])
         
         # If no diagrams exist, show error and return
@@ -685,9 +704,13 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                         break
                 
                 opts[CONF_DIAGRAM_CONFIGS] = diagram_configs
+                
+                # Store in working options
+                self._current_opts = opts
                 self._diagram_to_edit = None
-                _LOGGER.info("Returning from options flow with updated diagram configs: %s", opts[CONF_DIAGRAM_CONFIGS])
-                return self.async_create_entry(title="", data=opts)
+                
+                _LOGGER.info("Updated diagram, returning to menu")
+                return await self.async_step_configure_network_diagrams()
             
             # User selected a diagram to edit
             if "select_diagram" in user_input and user_input["select_diagram"]:
@@ -764,7 +787,11 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_delete_diagram(self, user_input=None) -> FlowResult:
         """Delete a network diagram."""
         errors = {}
-        opts = self.config_entry.options.copy()
+        # Use working options
+        if self._current_opts is None:
+            self._current_opts = self.config_entry.options.copy()
+        
+        opts = self._current_opts
         diagram_configs = opts.get(CONF_DIAGRAM_CONFIGS, [])
         
         # If no diagrams exist, show error and return
@@ -785,8 +812,11 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                 diagram_configs = [d for d in diagram_configs if d.get("stanox") != stanox_to_delete]
                 opts[CONF_DIAGRAM_CONFIGS] = diagram_configs
                 
-                _LOGGER.info("Returning from options flow with updated diagram configs: %s", opts[CONF_DIAGRAM_CONFIGS])
-                return self.async_create_entry(title="", data=opts)
+                # Store in working options
+                self._current_opts = opts
+                
+                _LOGGER.info("Deleted diagram, returning to menu")
+                return await self.async_step_configure_network_diagrams()
         
         # Show selection of diagrams to delete
         diagram_options = []

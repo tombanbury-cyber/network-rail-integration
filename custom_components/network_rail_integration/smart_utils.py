@@ -203,9 +203,41 @@ def get_station_berths_with_connections(
     avg_center = sum(center_berth_nums) / len(center_berth_nums) if center_berth_nums else 0
     _LOGGER.info("Center station average berth number: %.1f", avg_center)
     
-    # Use multi-hop discovery to find adjacent stations (within 3 berth hops)
+    # Use multi-hop discovery to find adjacent stations (within max_hops berth hops)
     _LOGGER.info("Starting multi-hop discovery (max %d hops)...", max_hops)
     adjacent_stations = find_adjacent_stations_multihop(graph, berth_keys, stanox, max_hops=max_hops)
+    
+    
+    # Use multi-hop discovery to find adjacent stations
+    _LOGGER.info("Starting multi-hop discovery (max %d hops)...", max_hops)
+    adjacent_stations = find_adjacent_stations_multihop(graph, berth_keys, stanox, max_hops=max_hops)
+    
+    _LOGGER.info("Found %d adjacent stations via connections", len(adjacent_stations))
+    
+    # FALLBACK: If we found fewer than expected stations, try berth proximity search
+    if len(adjacent_stations) < 5:  # Arbitrary threshold
+        _LOGGER.info("Using berth proximity fallback to find additional stations...")
+        
+        # Determine primary TD area from berth records
+        td_areas = set(rec.get("td_area") for rec in berth_records)
+        primary_td_area = td_areas.pop() if td_areas else None
+        
+        if primary_td_area and center_berth_nums:
+            nearby_by_proximity = find_nearby_stations_by_berth_proximity(
+                graph, stanox, center_berth_nums, primary_td_area, max_distance=50
+            )
+            
+            _LOGGER.info("Found %d stations by berth proximity", len(nearby_by_proximity))
+            
+            # Add nearby stations that weren't found by multi-hop
+            for nearby_stanox, distance in nearby_by_proximity:
+                if nearby_stanox not in adjacent_stations:
+                    # Estimate hop distance based on berth distance
+                    estimated_hops = max(1, int(distance / 10))
+                    adjacent_stations[nearby_stanox] = estimated_hops
+                    _LOGGER.info("  Added %s via proximity (distance:  %.1f berths)", 
+                                nearby_stanox, distance)
+    
     
     _LOGGER.info("Found %d adjacent stations:", len(adjacent_stations))
     for adj_stanox, hop_distance in adjacent_stations.items():
@@ -339,6 +371,60 @@ def get_station_berths_with_connections(
     
     up_connections = build_station_list(up_adjacent_stanox)
     down_connections = build_station_list(down_adjacent_stanox)
+    
+    # TEMPORARY: Check if Birchington exists
+    if stanox == "89483":  # Herne Bay
+        birchington_info = search_station_in_smart(graph, "89479")
+        _LOGGER.info("=" * 80)
+        _LOGGER.info("DIAGNOSTIC: Searching for Birchington (89479)")
+        _LOGGER.info("Found: %s", birchington_info["found"])
+        if birchington_info["found"]:
+            _LOGGER.info("Station name: %s", birchington_info. get("station_name"))
+            _LOGGER.info("Berths:  %s", birchington_info["berths"])
+        else:
+            _LOGGER. info("Birchington (89479) NOT FOUND in SMART data!")
+        _LOGGER.info("=" * 80)
+    
+    
+    
+    # TEMPORARY: Check for berths between Herne Bay and Birchington
+    if stanox == "89483":  # Herne Bay
+        birchington_info = search_station_in_smart(graph, "89479")
+        _LOGGER.info("=" * 80)
+        _LOGGER.info("DIAGNOSTIC: Searching for Birchington (89479)")
+        _LOGGER.info("Found: %s", birchington_info["found"])
+        if birchington_info["found"]:
+            _LOGGER.info("Station name: %s", birchington_info. get("station_name"))
+            _LOGGER.info("Berths:  %s", birchington_info["berths"])
+            
+            # Check connections from Herne Bay's highest berth
+            _LOGGER.info("-" * 60)
+            _LOGGER.info("Checking connections from Herne Bay berth 5094:")
+            berth_5094_key = "EK: 5094"
+            connections_5094 = berth_to_connections.get(berth_5094_key, {})
+            _LOGGER.info("  'to' connections: %s", connections_5094.get("to", []))
+            _LOGGER.info("  'from' connections: %s", connections_5094.get("from", []))
+            
+            # Check connections TO Birchington's lowest berth
+            _LOGGER.info("-" * 60)
+            _LOGGER.info("Checking connections TO Birchington berth 5095:")
+            berth_5095_key = "EK: 5095"
+            connections_5095 = berth_to_connections.get(berth_5095_key, {})
+            _LOGGER.info("  'to' connections: %s", connections_5095.get("to", []))
+            _LOGGER.info("  'from' connections:  %s", connections_5095.get("from", []))
+            
+            # Check if there's a STANOX for 5095
+            stanox_5095 = berth_to_stanox.get(berth_5095_key)
+            _LOGGER.info("  Berth 5095 belongs to STANOX: %s", stanox_5095)
+            
+        else:
+            _LOGGER. info("Birchington (89479) NOT FOUND in SMART data!")
+        _LOGGER.info("=" * 80)    
+    
+    
+    
+    
+    
     
     return {
         "stanox": stanox,
@@ -549,3 +635,86 @@ def get_station_platforms(
     
     # Sort platforms naturally
     return sorted(platforms, key=lambda x: (len(x), x))
+    
+    
+    
+    
+def search_station_in_smart(graph: dict[str, Any], stanox: str) -> dict[str, Any]:
+    """Search for a station in SMART data - diagnostic function."""
+    stanox_to_berths = graph.get("stanox_to_berths", {})
+    berth_to_stanox = graph.get("berth_to_stanox", {})
+    
+    result = {
+        "found": False,
+        "stanox": stanox,
+        "berths": [],
+        "connections": []
+    }
+    
+    # Check if station exists
+    berth_records = stanox_to_berths.get(stanox, [])
+    if berth_records:
+        result["found"] = True
+        result["station_name"] = berth_records[0].get("stanme", "Unknown")
+        
+        # List all berths
+        for record in berth_records:
+            result["berths"].append({
+                "td_area": record.get("td_area"),
+                "from_berth": record.get("from_berth"),
+                "to_berth": record.get("to_berth"),
+                "platform": record.get("platform"),
+            })
+    
+    return result
+    
+    
+    
+def find_nearby_stations_by_berth_proximity(
+    graph: dict[str, Any],
+    center_stanox: str,
+    center_berth_nums: list[int],
+    center_td_area: str,
+    max_distance: int = 50
+) -> list[tuple[str, float]]:
+    """Find stations in the same TD area with nearby berth numbers. 
+    
+    Returns: 
+        List of (stanox, avg_berth_distance) tuples
+    """
+    stanox_to_berths = graph.get("stanox_to_berths", {})
+    nearby_stations = {}
+    
+    if not center_berth_nums:
+        return []
+    
+    center_avg = sum(center_berth_nums) / len(center_berth_nums)
+    
+    # Search all stations in the graph
+    for adj_stanox, berth_records in stanox_to_berths.items():
+        if adj_stanox == center_stanox:
+            continue
+        
+        # Get berths for this station in the same TD area
+        adj_berth_nums = []
+        for record in berth_records:
+            if record.get("td_area") != center_td_area:
+                continue
+            
+            for berth_field in ["from_berth", "to_berth"]:
+                berth = record.get(berth_field, "")
+                if berth and berth.isdigit():
+                    adj_berth_nums.append(int(berth))
+        
+        if not adj_berth_nums: 
+            continue
+        
+        # Calculate average distance
+        adj_avg = sum(adj_berth_nums) / len(adj_berth_nums)
+        distance = abs(adj_avg - center_avg)
+        
+        if distance <= max_distance:
+            nearby_stations[adj_stanox] = distance
+    
+    # Return sorted by distance
+    return sorted(nearby_stations.items(), key=lambda x: x[1])

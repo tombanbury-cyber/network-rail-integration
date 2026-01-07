@@ -113,6 +113,7 @@ async def async_setup_entry(
     # Add Network Diagram sensors for each configured diagram
     diagram_configs = options.get(CONF_DIAGRAM_CONFIGS, [])
     smart_manager = hass.data[DOMAIN].get(f"{entry.entry_id}_smart_manager")
+    vstp_manager = hass.data[DOMAIN].get(f"{entry.entry_id}_vstp_manager")
     
     _LOGGER.info("Setting up Network Diagram sensors: %d diagrams configured", len(diagram_configs))
     
@@ -122,17 +123,23 @@ async def async_setup_entry(
             enabled = diagram_cfg.get("enabled", False)
             diagram_stanox = diagram_cfg.get("stanox")
             diagram_range = diagram_cfg.get("range", 1)
+            alert_services = diagram_cfg.get("alert_services", {})
             
             _LOGGER.info(
-                "Processing diagram config: stanox=%s, enabled=%s, range=%d",
+                "Processing diagram config: stanox=%s, enabled=%s, range=%d, alerts=%s",
                 diagram_stanox,
                 enabled,
-                diagram_range
+                diagram_range,
+                bool(alert_services)
             )
             
             if enabled and diagram_stanox:
                 _LOGGER.info("Creating NetworkDiagramSensor for stanox=%s", diagram_stanox)
-                entities.append(NetworkDiagramSensor(hass, entry, hub, smart_manager, diagram_stanox, diagram_range))
+                entities.append(NetworkDiagramSensor(
+                    hass, entry, hub, smart_manager, diagram_stanox, diagram_range,
+                    vstp_manager=vstp_manager,
+                    alert_services=alert_services
+                ))
             else:
                 _LOGGER.warning("Skipping diagram: stanox=%s, enabled=%s", diagram_stanox, enabled)
     else:
@@ -141,7 +148,6 @@ async def async_setup_entry(
     # Add Track Section sensors for each configured section
     from .const import CONF_TRACK_SECTIONS
     track_sections = options.get(CONF_TRACK_SECTIONS, [])
-    vstp_manager = hass.data[DOMAIN].get(f"{entry.entry_id}_vstp_manager")
     if track_sections:
         for section in track_sections:
             section_name = section.get("name")
@@ -835,14 +841,22 @@ class NetworkDiagramSensor(SensorEntity):
         hub, 
         smart_manager,
         center_stanox: str,
-        diagram_range: int = 1
+        diagram_range: int = 1,
+        vstp_manager=None,
+        alert_services: dict[str, bool] | None = None
     ) -> None:
         self.hass = hass
         self.entry = entry
         self.hub = hub
         self.smart_manager = smart_manager
+        self.vstp_manager = vstp_manager
         self._center_stanox = center_stanox
         self._diagram_range = int(diagram_range)  # <-- Convert to int here
+        self._alert_services = alert_services or {}
+        
+        # Train tracking (merged from TrackSectionSensor)
+        self._trains_in_diagram: dict[str, dict[str, Any]] = {}
+        
         # Use formatted station name if available, otherwise use STANOX code
         formatted_name = get_formatted_station_name(center_stanox)
         if formatted_name:
@@ -850,30 +864,46 @@ class NetworkDiagramSensor(SensorEntity):
         else:
             self._attr_name = f"Network Diagram {center_stanox}"
         self._unsub = None
+        self._unsub_vstp = None
         self._last_update_time = 0.0  # Track last update for throttling
         
         _LOGGER.info(
-            "NetworkDiagramSensor created: stanox=%s, name=%s, range=%d",
+            "NetworkDiagramSensor created: stanox=%s, name=%s, range=%d, alerts_enabled=%s",
             center_stanox,
             self._attr_name,
-            self._diagram_range
+            self._diagram_range,
+            bool(self._alert_services)
         )
 
     async def async_added_to_hass(self) -> None:
         _LOGGER.info("NetworkDiagramSensor async_added_to_hass: stanox=%s", self._center_stanox)
         # Subscribe to TD messages for berth updates
-        self._unsub = async_dispatcher_connect(self.hass, DISPATCH_TD, self._handle_update)
+        self._unsub = async_dispatcher_connect(self.hass, DISPATCH_TD, self._handle_td_message)
         _LOGGER.info("NetworkDiagramSensor subscribed to TD updates: stanox=%s", self._center_stanox)
+        
+        # Subscribe to VSTP events if manager is available
+        from .const import DISPATCH_VSTP
+        if self.vstp_manager:
+            self._unsub_vstp = async_dispatcher_connect(
+                self.hass, DISPATCH_VSTP, self._handle_vstp_message
+            )
 
     async def async_will_remove_from_hass(self) -> None:
         if self._unsub:
             self._unsub()
             self._unsub = None
+        if self._unsub_vstp:
+            self._unsub_vstp()
+            self._unsub_vstp = None
 
     @callback
-    def _handle_update(self, parsed_message: dict[str, Any]) -> None:
-        """Handle TD message update with throttling."""
-        _LOGGER.debug("NetworkDiagramSensor _handle_update called: stanox=%s", self._center_stanox)
+    def _handle_td_message(self, parsed_message: dict[str, Any]) -> None:
+        """Handle TD message update with throttling and train tracking."""
+        _LOGGER.debug("NetworkDiagramSensor _handle_td_message called: stanox=%s", self._center_stanox)
+        
+        # Track trains if alert services are enabled
+        if self._alert_services:
+            self._process_train_tracking(parsed_message)
         
         # Apply throttling based on configuration
         throttle_seconds = self.entry.options.get(CONF_TD_UPDATE_INTERVAL, DEFAULT_TD_UPDATE_INTERVAL)
@@ -884,6 +914,186 @@ class NetworkDiagramSensor(SensorEntity):
         self._last_update_time = time.monotonic()
         _LOGGER.debug("NetworkDiagramSensor triggering state update: stanox=%s", self._center_stanox)
         self.async_write_ha_state()
+    
+    @callback
+    def _handle_vstp_message(self, vstp_message: dict[str, Any]) -> None:
+        """Handle VSTP message for train enrichment."""
+        # VSTP messages are processed by vstp_manager
+        # We'll query it when we need schedule data
+        pass
+    
+    def _process_train_tracking(self, td_message: dict[str, Any]) -> None:
+        """Process TD message to track trains in diagram area."""
+        msg_type = td_message.get("msg_type")
+        area_id = td_message.get("area_id")
+        
+        if not area_id:
+            return
+        
+        # Get all berths in diagram area
+        diagram_berths = self._get_all_diagram_berths(self.smart_manager.get_graph() if self.smart_manager.is_available() else {})
+        
+        # Handle berth step (CA) - train moved from one berth to another
+        if msg_type == "CA":
+            from_berth = td_message.get("from")
+            to_berth = td_message.get("to")
+            headcode = td_message.get("descr")
+            
+            if not headcode:
+                return
+            
+            from_berth_key = f"{area_id}:{from_berth}" if from_berth else None
+            to_berth_key = f"{area_id}:{to_berth}" if to_berth else None
+            
+            # Check if train is entering, leaving, or moving within diagram area
+            from_in_diagram = from_berth_key in diagram_berths if from_berth_key else False
+            to_in_diagram = to_berth_key in diagram_berths if to_berth_key else False
+            
+            if to_in_diagram and not from_in_diagram:
+                # Train entering diagram area
+                self._train_entered_diagram(to_berth_key, headcode, td_message)
+            elif from_in_diagram and not to_in_diagram:
+                # Train leaving diagram area
+                self._train_left_diagram(headcode)
+            elif from_in_diagram and to_in_diagram:
+                # Train moving within diagram area
+                self._train_moved_in_diagram(from_berth_key, to_berth_key, headcode, td_message)
+        
+        # Handle berth cancel (CB) - train disappeared from berth
+        elif msg_type == "CB":
+            from_berth = td_message.get("from")
+            headcode = td_message.get("descr")
+            
+            if headcode and from_berth:
+                from_berth_key = f"{area_id}:{from_berth}"
+                if from_berth_key in diagram_berths:
+                    # Train cancelled in diagram area - remove it
+                    self._train_left_diagram(headcode)
+        
+        # Handle berth interpose (CC) - train appeared in berth
+        elif msg_type == "CC":
+            to_berth = td_message.get("to")
+            headcode = td_message.get("descr")
+            
+            if headcode and to_berth:
+                to_berth_key = f"{area_id}:{to_berth}"
+                if to_berth_key in diagram_berths:
+                    # Train interposed in diagram area
+                    self._train_entered_diagram(to_berth_key, headcode, td_message)
+    
+    def _train_entered_diagram(self, berth: str, headcode: str, td_message: dict[str, Any]) -> None:
+        """Handle train entering the diagram area."""
+        now = dt_util.now()
+        
+        # Get VSTP data if available
+        vstp_data = None
+        service_classification = None
+        if self.vstp_manager:
+            vstp_data = self.vstp_manager.get_schedule_for_headcode(headcode)
+            
+            if vstp_data:
+                # Classify the service
+                from .service_classifier import classify_service
+                service_classification = classify_service(vstp_data, headcode)
+        
+        # Create train data
+        train_data = {
+            "headcode": headcode,
+            "current_berth": berth,
+            "entered_at": now.isoformat(),
+            "berths_visited": [berth],
+            "td_message": td_message,
+        }
+        
+        # Add VSTP enrichment if available
+        if vstp_data and service_classification:
+            origin, destination = self.vstp_manager.get_origin_destination(vstp_data) if self.vstp_manager else (None, None)
+            
+            train_data.update({
+                "vstp_data": vstp_data,
+                "service_type": service_classification.get("service_type"),
+                "service_category": service_classification.get("service_category"),
+                "description": service_classification.get("description"),
+                "origin": origin,
+                "destination": destination,
+                "is_freight": service_classification.get("is_freight", False),
+                "is_passenger": service_classification.get("is_passenger", False),
+                "is_special": service_classification.get("is_special", False),
+                "special_types": service_classification.get("special_types", []),
+            })
+            
+            # Get operator info
+            if vstp_data:
+                from .toc_codes import get_toc_name
+                toc_id = vstp_data.get("CIF_train_uid", "")[:2] if vstp_data.get("CIF_train_uid") else ""
+                train_data["operator"] = get_toc_name(toc_id)
+            
+            # Check if this should trigger an alert
+            from .service_classifier import should_alert_for_service
+            should_alert, alert_reason = should_alert_for_service(service_classification, self._alert_services)
+            train_data["triggers_alert"] = should_alert
+            train_data["alert_reason"] = alert_reason
+            
+            # Fire alert event if needed
+            if should_alert:
+                self._fire_diagram_alert(headcode, train_data, alert_reason)
+        
+        # Store train data
+        self._trains_in_diagram[headcode] = train_data
+    
+    def _train_left_diagram(self, headcode: str) -> None:
+        """Handle train leaving the diagram area."""
+        if headcode in self._trains_in_diagram:
+            del self._trains_in_diagram[headcode]
+    
+    def _train_moved_in_diagram(
+        self, 
+        from_berth: str, 
+        to_berth: str, 
+        headcode: str,
+        td_message: dict[str, Any]
+    ) -> None:
+        """Handle train moving within the diagram area."""
+        if headcode in self._trains_in_diagram:
+            train_data = self._trains_in_diagram[headcode]
+            train_data["current_berth"] = to_berth
+            train_data["berths_visited"].append(to_berth)
+            train_data["td_message"] = td_message
+        else:
+            # Train wasn't tracked - add it now
+            self._train_entered_diagram(to_berth, headcode, td_message)
+    
+    def _calculate_time_in_diagram(self, train_data: dict[str, Any]) -> int:
+        """Calculate how long train has been in diagram area (seconds)."""
+        entered_at_str = train_data.get("entered_at")
+        if not entered_at_str:
+            return 0
+        
+        try:
+            entered_at = datetime.fromisoformat(entered_at_str)
+            now = dt_util.now()
+            delta = now - entered_at
+            return int(delta.total_seconds())
+        except Exception:
+            return 0
+    
+    def _fire_diagram_alert(self, headcode: str, train_data: dict[str, Any], alert_reason: str) -> None:
+        """Fire a Home Assistant event for diagram alert."""
+        event_data = {
+            "diagram_stanox": self._center_stanox,
+            "train_id": headcode,
+            "headcode": headcode,
+            "alert_type": train_data.get("service_type", "unknown"),
+            "alert_reason": alert_reason,
+            "current_berth": train_data.get("current_berth"),
+            "service_type": train_data.get("service_type"),
+            "origin": train_data.get("origin"),
+            "destination": train_data.get("destination"),
+            "operator": train_data.get("operator"),
+            "entered_at": train_data.get("entered_at"),
+        }
+        
+        self.hass.bus.async_fire("homeassistant_network_rail_uk_track_alert", event_data)
 
     @property
     def unique_id(self) -> str:
@@ -1120,7 +1330,8 @@ class NetworkDiagramSensor(SensorEntity):
         
         last_updated = self.smart_manager.get_last_updated()
         
-        return {
+        # Base attributes
+        attrs = {
             "center_stanox": self._center_stanox,
             "center_name": station_data.get("stanme", ""),
             "center_berths": center_berths,
@@ -1130,6 +1341,54 @@ class NetworkDiagramSensor(SensorEntity):
             "smart_data_last_updated": last_updated.isoformat() if last_updated else None,
             "diagram_range": self._diagram_range,
         }
+        
+        # Add train tracking data if alerts are enabled
+        if self._alert_services:
+            trains_list = []
+            alert_count = 0
+            
+            for train_id, train_data in self._trains_in_diagram.items():
+                train_info = {
+                    "train_id": train_id,
+                    "headcode": train_data.get("headcode", train_id),
+                    "current_berth": train_data.get("current_berth"),
+                    "entered_diagram_at": train_data.get("entered_at"),
+                    "time_in_diagram_seconds": self._calculate_time_in_diagram(train_data),
+                    "berths_visited": train_data.get("berths_visited", []),
+                }
+                
+                # Add VSTP data if available
+                vstp_data = train_data.get("vstp_data")
+                if vstp_data:
+                    train_info.update({
+                        "service_type": train_data.get("service_type"),
+                        "category": vstp_data.get("CIF_train_category"),
+                        "origin": train_data.get("origin"),
+                        "destination": train_data.get("destination"),
+                        "operator": train_data.get("operator"),
+                        "description": train_data.get("description"),
+                    })
+                
+                # Add alert information
+                if train_data.get("triggers_alert", False):
+                    alert_count += 1
+                    train_info["triggers_alert"] = True
+                    train_info["alert_reason"] = train_data.get("alert_reason")
+                else:
+                    train_info["triggers_alert"] = False
+                    train_info["alert_reason"] = None
+                
+                trains_list.append(train_info)
+            
+            attrs.update({
+                "trains_in_diagram": trains_list,
+                "total_trains": len(self._trains_in_diagram),
+                "alert_trains": alert_count,
+                "alert_services_enabled": self._alert_services,
+            })
+        
+        return attrs
+
 
 
 class TrackSectionSensor(SensorEntity):

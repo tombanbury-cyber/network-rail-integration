@@ -590,11 +590,27 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                     errors["selected_stanox"] = "diagram_already_exists"
                     _LOGGER.warning("Diagram for stanox %s already exists", stanox)
                 else:
+                    # Collect alert services configuration
+                    alert_services = {}
+                    if user_input.get("alert_freight", False):
+                        alert_services["freight"] = True
+                    if user_input.get("alert_rhtt", False):
+                        alert_services["rhtt"] = True
+                    if user_input.get("alert_steam", False):
+                        alert_services["steam"] = True
+                    if user_input.get("alert_charter", False):
+                        alert_services["charter"] = True
+                    if user_input.get("alert_pullman", False):
+                        alert_services["pullman"] = True
+                    if user_input.get("alert_royal_train", False):
+                        alert_services["royal_train"] = True
+                    
                     # Add the new diagram
                     new_diagram = {
                         "stanox": stanox,
                         "enabled": user_input.get("diagram_enabled", True),
                         "range": user_input.get("diagram_range", 10),
+                        "alert_services": alert_services,
                     }
                     _LOGGER.info("Creating new diagram:  %s", new_diagram)
                     diagram_configs.append(new_diagram)
@@ -645,6 +661,12 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                             mode=selector.NumberSelectorMode.BOX,
                         ),
                     ),
+                    vol.Optional("alert_freight", default=False): bool,
+                    vol.Optional("alert_rhtt", default=False): bool,
+                    vol.Optional("alert_steam", default=False): bool,
+                    vol.Optional("alert_charter", default=False): bool,
+                    vol.Optional("alert_pullman", default=False): bool,
+                    vol.Optional("alert_royal_train", default=False): bool,
                     vol.Optional("station_query"): str,
                 }
             )
@@ -660,6 +682,12 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                             mode=selector.NumberSelectorMode.BOX,
                         ),
                     ),
+                    vol.Optional("alert_freight", default=False): bool,
+                    vol.Optional("alert_rhtt", default=False): bool,
+                    vol.Optional("alert_steam", default=False): bool,
+                    vol.Optional("alert_charter", default=False): bool,
+                    vol.Optional("alert_pullman", default=False): bool,
+                    vol.Optional("alert_royal_train", default=False): bool,
                 }
             )
         
@@ -668,7 +696,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
             data_schema=schema,
             errors=errors,
             description_placeholders={
-                "description": "Search for a station to use as the center of the diagram. The range controls how many stations in each direction to include (1-5)."
+                "description": "Search for a station to use as the center of the diagram. The range controls how many stations in each direction to include (1-10).\n\nOptionally enable alerts for specific train types (requires VSTP feed)."
             }
         )
     
@@ -696,6 +724,21 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             # If we have diagram_index, we're updating the diagram
             if "diagram_enabled" in user_input and self._diagram_to_edit is not None:
+                # Collect alert services configuration
+                alert_services = {}
+                if user_input.get("alert_freight", False):
+                    alert_services["freight"] = True
+                if user_input.get("alert_rhtt", False):
+                    alert_services["rhtt"] = True
+                if user_input.get("alert_steam", False):
+                    alert_services["steam"] = True
+                if user_input.get("alert_charter", False):
+                    alert_services["charter"] = True
+                if user_input.get("alert_pullman", False):
+                    alert_services["pullman"] = True
+                if user_input.get("alert_royal_train", False):
+                    alert_services["royal_train"] = True
+                
                 # Update the diagram
                 stanox = self._diagram_to_edit.get("stanox")
                 for diagram in diagram_configs:
@@ -703,6 +746,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                         # Update individual keys to preserve any future additions
                         diagram["enabled"] = user_input.get("diagram_enabled", True)
                         diagram["range"] = user_input.get("diagram_range", 10)
+                        diagram["alert_services"] = alert_services
                         break
                 
                 opts[CONF_DIAGRAM_CONFIGS] = diagram_configs
@@ -727,6 +771,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
         if self._diagram_to_edit is not None:
             stanox = self._diagram_to_edit.get("stanox", "")
             station_name = await get_formatted_station_name_async(stanox) or stanox
+            alert_services = self._diagram_to_edit.get("alert_services", {})
             
             schema = vol.Schema(
                 {
@@ -744,6 +789,12 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                             mode=selector.NumberSelectorMode.BOX,
                         ),
                     ),
+                    vol.Optional("alert_freight", default=alert_services.get("freight", False)): bool,
+                    vol.Optional("alert_rhtt", default=alert_services.get("rhtt", False)): bool,
+                    vol.Optional("alert_steam", default=alert_services.get("steam", False)): bool,
+                    vol.Optional("alert_charter", default=alert_services.get("charter", False)): bool,
+                    vol.Optional("alert_pullman", default=alert_services.get("pullman", False)): bool,
+                    vol.Optional("alert_royal_train", default=alert_services.get("royal_train", False)): bool,
                 }
             )
             
@@ -752,7 +803,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                 data_schema=schema,
                 errors=errors,
                 description_placeholders={
-                    "description": f"Editing diagram for: {station_name} ({stanox})\n\nAdjust the enabled status and range as needed."
+                    "description": f"Editing diagram for: {station_name} ({stanox})\n\nAdjust the enabled status, range, and alert settings as needed. Alerts require VSTP feed to be enabled."
                 }
             )
         
@@ -761,8 +812,10 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
         for d in diagram_configs:
             stanox = d.get('stanox', '')
             station_name = await get_formatted_station_name_async(stanox) or stanox
+            alert_count = len([k for k, v in d.get('alert_services', {}).items() if v])
+            alert_text = f" (Alerts: {alert_count})" if alert_count > 0 else ""
             diagram_options.append({
-                "label": f"{station_name} ({stanox}) - Range: {d.get('range', 1)} - {'Enabled' if d.get('enabled', False) else 'Disabled'}",
+                "label": f"{station_name} ({stanox}) - Range: {d.get('range', 1)} - {'Enabled' if d.get('enabled', False) else 'Disabled'}{alert_text}",
                 "value": stanox,
             })
         

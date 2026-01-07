@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] - 2026-01-07
+
+### Added
+- **Network Diagrams with Alerts**: Merged Track Section Monitor functionality into Network Diagrams
+  - Network Diagrams now support intelligent train tracking and alerts
+  - Configurable alert types: freight, RHTT, steam, charter, pullman, royal train
+  - VSTP schedule enrichment for trains in diagram areas
+  - Per-train attributes including origin, destination, operator, service type
+  - Time tracking for trains in diagram area
+  - Home Assistant event firing (`homeassistant_network_rail_uk_track_alert`) when alert trains enter diagram
+  - Alert configuration in diagram add/edit flows
+  
+### Changed
+- **Network Diagram Configuration**: Enhanced with alert service checkboxes
+  - Alert services can be enabled per diagram during creation or editing
+  - Alert configuration is optional - diagrams work as before if alerts are disabled
+  - Diagram range increased to support 1-10 stations (previously 1-5)
+  
+### Enhanced
+- **NetworkDiagramSensor**: Extended to include train tracking capabilities
+  - Added `trains_in_diagram` attribute when alerts are enabled
+  - Added `total_trains` and `alert_trains` counts
+  - Added `alert_services_enabled` configuration display
+  - Integration with VSTP manager for schedule enrichment
+  - Per-train details including time in area, berths visited, and service classification
+  
+### Documentation
+- Updated [NETWORK_DIAGRAMS.md](NETWORK_DIAGRAMS.md) with alert configuration and automation examples
+- Updated [README.md](README.md) to highlight unified functionality
+- Added automation examples for diagram alerts
+- Added dashboard examples showing alert trains
+
+### Notes
+- Track Section Monitor remains available for backward compatibility
+- Existing Track Section configurations continue to work unchanged
+- For new setups, Network Diagrams with alerts are recommended for most use cases
+- Alerts require VSTP feed to be enabled for service classification
+
 ## [1.12.0] - 2025-12-29
 
 ### Added

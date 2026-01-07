@@ -45,10 +45,37 @@ Examples:
 
 - **Enable/Disable**: Toggle the network diagram sensor on/off
 - **Center Station**: The STANOX code of the station to center the diagram on
-- **Range**: Number of stations up/down the line to include (1-5)
+- **Range**: Number of stations up/down the line to include (1-10)
   - Range 1: Just the center station and immediate neighbors
   - Range 2: Center station and 2 stations in each direction
-  - Range 5: Center station and 5 stations in each direction
+  - Range 10: Center station and 10 stations in each direction
+
+### Alert Configuration (NEW in v1.14.0)
+
+Network Diagrams can now be configured with **intelligent alerts** similar to Track Section Monitor. When alerts are enabled, the diagram will track trains in the diagram area and fire Home Assistant events when specific service types are detected.
+
+**Alert Types:**
+- **Freight**: All freight trains (0xxx, 4xxx, 6xxx, 7xxx headcodes)
+- **RHTT**: Rail Head Treatment Trains (3Hxx, 3Yxx headcodes)
+- **Steam**: Steam charter services (typically 1Zxx headcodes)
+- **Charter**: General charter/special services (1Zxx headcodes)
+- **Pullman**: Luxury/Pullman services
+- **Royal Train**: Royal train services (1X99 headcode)
+
+**Requirements for Alerts:**
+- VSTP feed must be enabled for service classification
+- Train Describer feed must be enabled
+- TD areas must be configured to cover your diagram area
+
+To enable alerts for a diagram:
+1. Go to **Settings → Devices & Services → Network Rail Integration**
+2. Click **Configure**
+3. Select **Configure Network Diagrams**
+4. Choose **Edit Diagram** to modify an existing diagram
+5. Check the alert types you want to enable
+6. Click **Submit**
+
+When a train matching your alert criteria enters the diagram area, the integration will fire a `homeassistant_network_rail_uk_track_alert` event that you can use in automations.
 
 ## Understanding the Sensor
 
@@ -100,6 +127,36 @@ down_stations:
 smart_data_available: true
 smart_data_last_updated: "2025-01-15T10:30:00Z"
 diagram_range: 1
+
+# NEW in v1.14.0: Train tracking attributes (when alerts are enabled)
+trains_in_diagram:
+  - train_id: "6M94"
+    headcode: "6M94"
+    current_berth: "SK:M123"
+    entered_diagram_at: "2025-12-29T10:12:08"
+    time_in_diagram_seconds: 145
+    berths_visited:
+      - "SK:M121"
+      - "SK:M122"
+      - "SK:M123"
+    
+    # VSTP enriched data (if available)
+    service_type: "freight"
+    category: "M"
+    origin: "FLIXSTW"
+    destination: "TRAFFPK"
+    operator: "Freightliner"
+    description: "Freight Intermodal"
+    
+    triggers_alert: true
+    alert_reason: "Freight service"
+
+total_trains: 1
+alert_trains: 1
+alert_services_enabled:
+  freight: true
+  rhtt: false
+  steam: true
 ```
 
 ## Creating a Lovelace Dashboard
@@ -166,6 +223,77 @@ elements:
         {% else %}
         green
         {% endif %}
+```
+
+## Automation with Diagram Alerts (NEW in v1.14.0)
+
+When alerts are enabled for a diagram, the integration fires Home Assistant events that you can use to trigger automations.
+
+### Alert on Freight Trains
+
+```yaml
+automation:
+  - alias: "Alert on freight train in diagram"
+    trigger:
+      - platform: event
+        event_type: homeassistant_network_rail_uk_track_alert
+        event_data:
+          diagram_stanox: "32000"
+          alert_type: "freight"
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "Freight Train Alert"
+          message: >
+            Freight train {{ trigger.event.data.headcode }} 
+            from {{ trigger.event.data.origin }} to {{ trigger.event.data.destination }}
+            has entered the Manchester Piccadilly diagram area
+```
+
+### Alert on Steam Specials
+
+```yaml
+automation:
+  - alias: "Alert on steam special in diagram"
+    trigger:
+      - platform: event
+        event_type: homeassistant_network_rail_uk_track_alert
+    condition:
+      - condition: template
+        value_template: "{{ 'steam' in trigger.event.data.get('alert_reason', '').lower() }}"
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "Steam Special Alert"
+          message: >
+            Steam special {{ trigger.event.data.headcode }} 
+            has entered the diagram area!
+```
+
+### Display Alert Trains
+
+Show trains currently in the diagram area that are triggering alerts:
+
+```yaml
+type: markdown
+content: |
+  ## Alert Trains in Diagram
+  
+  {% set trains = state_attr('sensor.network_rail_integration_diagram_32000', 'trains_in_diagram') %}
+  {% set alert_trains = trains | selectattr('triggers_alert', 'equalto', true) | list if trains else [] %}
+  {% if alert_trains %}
+    {% for train in alert_trains %}
+      ### {{ train.headcode }} ⚠️
+      - **Service**: {{ train.service_type | default('Unknown') }}
+      - **From**: {{ train.origin | default('Unknown') }}
+      - **To**: {{ train.destination | default('Unknown') }}
+      - **Alert**: {{ train.alert_reason }}
+      - **Time in area**: {{ (train.time_in_diagram_seconds / 60) | round(1) }} minutes
+      ---
+    {% endfor %}
+  {% else %}
+    *No alert trains currently in diagram area*
+  {% endif %}
 ```
 
 ## Refreshing SMART Data

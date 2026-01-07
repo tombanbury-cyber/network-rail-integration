@@ -306,23 +306,39 @@ def get_station_berths_with_connections(
         _LOGGER.info("  Adjacent station average berth:  %.1f", avg_adj)
         
         # Decide direction based on evidence or berth numbers
-        if up_evidence > down_evidence: 
+        if up_evidence > down_evidence:
             _LOGGER.info("  -> Classified as UP (line evidence)")
-            up_adjacent_stanox.add(adj_stanox)
-        elif down_evidence > up_evidence:  
+            up_adjacent_stanox. add(adj_stanox)
+        elif down_evidence > up_evidence:   
             _LOGGER.info("  -> Classified as DOWN (line evidence)")
             down_adjacent_stanox.add(adj_stanox)
         else:
             # Use berth number heuristic
             if avg_adj > 0 and avg_center > 0:
-                if avg_adj < avg_center:  
-                    _LOGGER. info("  -> Classified as UP (berth %.1f < center %.1f)", avg_adj, avg_center)
-                    up_adjacent_stanox.add(adj_stanox)
+                # Check if berths span a wide range (indicating branch line or complex layout)
+                berth_range = max(adj_berth_nums) - min(adj_berth_nums) if len(adj_berth_nums) > 1 else 0
+                
+                if berth_range > 100: 
+                    # Wide range - use CLOSEST berth to center instead of average
+                    closest_berth = min(adj_berth_nums, key=lambda x: abs(x - avg_center))
+                    _LOGGER.info("  Wide berth range detected (%d), using closest berth: %d", berth_range, closest_berth)
+                    
+                    if closest_berth < avg_center:  
+                        _LOGGER.info("  -> Classified as UP (closest berth %d < center %.1f)", closest_berth, avg_center)
+                        up_adjacent_stanox.add(adj_stanox)
+                    else:
+                        _LOGGER.info("  -> Classified as DOWN (closest berth %d > center %.1f)", closest_berth, avg_center)
+                        down_adjacent_stanox.add(adj_stanox)
                 else:
-                    _LOGGER.info("  -> Classified as DOWN (berth %.1f > center %.1f)", avg_adj, avg_center)
-                    down_adjacent_stanox.add(adj_stanox)
+                    # Normal case - use average
+                    if avg_adj < avg_center:  
+                        _LOGGER.info("  -> Classified as UP (berth %.1f < center %.1f)", avg_adj, avg_center)
+                        up_adjacent_stanox.add(adj_stanox)
+                    else:
+                        _LOGGER.info("  -> Classified as DOWN (berth %.1f > center %.1f)", avg_adj, avg_center)
+                        down_adjacent_stanox.add(adj_stanox)
             else:
-                _LOGGER. info("  -> Classified as DOWN (default)")
+                _LOGGER.info("  -> Classified as DOWN (default)")
                 down_adjacent_stanox.add(adj_stanox)
     
     _LOGGER.info("=" * 80)
@@ -372,58 +388,137 @@ def get_station_berths_with_connections(
     up_connections = build_station_list(up_adjacent_stanox)
     down_connections = build_station_list(down_adjacent_stanox)
     
+    
+    
+    # Build station lists, SORTED BY DISTANCE from center
+    def build_station_list_sorted(stanox_set):
+        stations_with_distance = []
+        
+        for adj_stanox in stanox_set:  
+            adj_berth_records = stanox_to_berths.get(adj_stanox, [])
+            adj_stanme = adj_berth_records[0]. get("stanme", "") if adj_berth_records else ""
+            
+            # Calculate berths for this station
+            adj_berth_nums = []
+            for rec in adj_berth_records: 
+                for berth_field in ["from_berth", "to_berth"]: 
+                    berth = rec.get(berth_field, "")
+                    if berth and berth.isdigit():
+                        adj_berth_nums.append(int(berth))
+            
+            # Use same logic as classification for consistency
+            if adj_berth_nums:
+                berth_range = max(adj_berth_nums) - min(adj_berth_nums) if len(adj_berth_nums) > 1 else 0
+                
+                if berth_range > 100:
+                    # Wide range - use CLOSEST berth (same as classification)
+                    berth_for_distance = min(adj_berth_nums, key=lambda x: abs(x - avg_center))
+                else: 
+                    # Normal - use average (same as classification)
+                    berth_for_distance = sum(adj_berth_nums) / len(adj_berth_nums)
+            else:
+                berth_for_distance = 0
+            
+            # Calculate distance from center
+            # For UP stations:  distance is center - adjacent (positive = further up)
+            # For DOWN stations:  distance is adjacent - center (positive = further down)
+            if adj_stanox in up_adjacent_stanox:
+                distance = avg_center - berth_for_distance
+            else:  # DOWN
+                distance = berth_for_distance - avg_center
+            
+            # Build berth list for this station
+            adj_berths = []
+            adj_berth_keys = set()
+            for record in adj_berth_records: 
+                td_area = record.get("td_area", "")
+                from_berth = record.get("from_berth", "")
+                to_berth = record. get("to_berth", "")
+                
+                if from_berth and td_area:
+                    berth_key = f"{td_area}:{from_berth}"
+                    if berth_key not in adj_berth_keys:
+                        adj_berth_keys.add(berth_key)
+                        adj_berths.append({
+                            "berth_id": from_berth,
+                            "td_area": td_area,
+                        })
+                
+                if to_berth and td_area: 
+                    berth_key = f"{td_area}:{to_berth}"
+                    if berth_key not in adj_berth_keys:
+                        adj_berth_keys.add(berth_key)
+                        adj_berths.append({
+                            "berth_id":  to_berth,
+                            "td_area": td_area,
+                        })
+            
+            station_info = {
+                "stanox":  adj_stanox,
+                "stanme": adj_stanme,
+                "berths": adj_berths,
+            }
+            
+            stations_with_distance.append((distance, adjacent_stations. get(adj_stanox, 99), station_info))
+        
+        # Sort by distance (closest first), then by hop count
+        stations_with_distance.sort(key=lambda x: (x[0], x[1]))
+        
+        return [s[2] for s in stations_with_distance]
+        
+    
+    up_connections = build_station_list_sorted(up_adjacent_stanox)
+    down_connections = build_station_list_sorted(down_adjacent_stanox)
+    
+    
     # TEMPORARY: Check if Birchington exists
-    if stanox == "89483":  # Herne Bay
-        birchington_info = search_station_in_smart(graph, "89479")
-        _LOGGER.info("=" * 80)
-        _LOGGER.info("DIAGNOSTIC: Searching for Birchington (89479)")
-        _LOGGER.info("Found: %s", birchington_info["found"])
-        if birchington_info["found"]:
-            _LOGGER.info("Station name: %s", birchington_info. get("station_name"))
-            _LOGGER.info("Berths:  %s", birchington_info["berths"])
-        else:
-            _LOGGER. info("Birchington (89479) NOT FOUND in SMART data!")
-        _LOGGER.info("=" * 80)
+    #if stanox == "89483":  # Herne Bay
+    #    birchington_info = search_station_in_smart(graph, "89479")
+    #    _LOGGER.info("=" * 80)
+    #    _LOGGER.info("DIAGNOSTIC: Searching for Birchington (89479)")
+    #    _LOGGER.info("Found: %s", birchington_info["found"])
+    #    if birchington_info["found"]:
+    #        _LOGGER.info("Station name: %s", birchington_info. get("station_name"))
+    #        _LOGGER.info("Berths:  %s", birchington_info["berths"])
+    #    else:
+    #        _LOGGER. info("Birchington (89479) NOT FOUND in SMART data!")
+    #    _LOGGER.info("=" * 80)
     
     
     
     # TEMPORARY: Check for berths between Herne Bay and Birchington
-    if stanox == "89483":  # Herne Bay
-        birchington_info = search_station_in_smart(graph, "89479")
-        _LOGGER.info("=" * 80)
-        _LOGGER.info("DIAGNOSTIC: Searching for Birchington (89479)")
-        _LOGGER.info("Found: %s", birchington_info["found"])
-        if birchington_info["found"]:
-            _LOGGER.info("Station name: %s", birchington_info. get("station_name"))
-            _LOGGER.info("Berths:  %s", birchington_info["berths"])
-            
-            # Check connections from Herne Bay's highest berth
-            _LOGGER.info("-" * 60)
-            _LOGGER.info("Checking connections from Herne Bay berth 5094:")
-            berth_5094_key = "EK: 5094"
-            connections_5094 = berth_to_connections.get(berth_5094_key, {})
-            _LOGGER.info("  'to' connections: %s", connections_5094.get("to", []))
-            _LOGGER.info("  'from' connections: %s", connections_5094.get("from", []))
-            
-            # Check connections TO Birchington's lowest berth
-            _LOGGER.info("-" * 60)
-            _LOGGER.info("Checking connections TO Birchington berth 5095:")
-            berth_5095_key = "EK: 5095"
-            connections_5095 = berth_to_connections.get(berth_5095_key, {})
-            _LOGGER.info("  'to' connections: %s", connections_5095.get("to", []))
-            _LOGGER.info("  'from' connections:  %s", connections_5095.get("from", []))
-            
-            # Check if there's a STANOX for 5095
-            stanox_5095 = berth_to_stanox.get(berth_5095_key)
-            _LOGGER.info("  Berth 5095 belongs to STANOX: %s", stanox_5095)
-            
-        else:
-            _LOGGER. info("Birchington (89479) NOT FOUND in SMART data!")
-        _LOGGER.info("=" * 80)    
-    
-    
-    
-    
+    #if stanox == "89483":  # Herne Bay
+    #    birchington_info = search_station_in_smart(graph, "89479")
+    #    _LOGGER.info("=" * 80)
+    #    _LOGGER.info("DIAGNOSTIC: Searching for Birchington (89479)")
+    #    _LOGGER.info("Found: %s", birchington_info["found"])
+    #    if birchington_info["found"]:
+    #        _LOGGER.info("Station name: %s", birchington_info. get("station_name"))
+    #        _LOGGER.info("Berths:  %s", birchington_info["berths"])
+    #        
+    #        # Check connections from Herne Bay's highest berth
+    #        _LOGGER.info("-" * 60)
+    #        _LOGGER.info("Checking connections from Herne Bay berth 5094:")
+    #        berth_5094_key = "EK: 5094"
+    #        connections_5094 = berth_to_connections.get(berth_5094_key, {})
+    #        _LOGGER.info("  'to' connections: %s", connections_5094.get("to", []))
+    #        _LOGGER.info("  'from' connections: %s", connections_5094.get("from", []))
+    #        
+    #        # Check connections TO Birchington's lowest berth
+    #        _LOGGER.info("-" * 60)
+    #        _LOGGER.info("Checking connections TO Birchington berth 5095:")
+    #        berth_5095_key = "EK: 5095"
+    #        connections_5095 = berth_to_connections.get(berth_5095_key, {})
+    #        _LOGGER.info("  'to' connections: %s", connections_5095.get("to", []))
+    #        _LOGGER.info("  'from' connections:  %s", connections_5095.get("from", []))
+    #        
+    #        # Check if there's a STANOX for 5095
+    #        stanox_5095 = berth_to_stanox.get(berth_5095_key)
+    #        _LOGGER.info("  Berth 5095 belongs to STANOX: %s", stanox_5095)
+    #        
+    #    else:
+    #        _LOGGER. info("Birchington (89479) NOT FOUND in SMART data!")
+    #    _LOGGER.info("=" * 80)    
     
     
     return {

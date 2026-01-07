@@ -14,19 +14,20 @@ Track train movements at specific stations with detailed arrival/departure infor
 ### Train Describer Feed (Enhanced in v1.8.0)
 Monitor train positions through signalling berths for creating live railway network diagrams. **NEW in v1.8.0**: Track multiple platforms simultaneously with configurable event history. See [TRAIN_DESCRIBER.md](TRAIN_DESCRIBER.md) for details.
 
-### Network Diagrams (NEW in v1.7.0)
-Visualize train positions on a map of berth connections showing adjacent stations and real-time occupancy. Uses Network Rail's SMART data to build topology graphs. See [NETWORK_DIAGRAMS.md](NETWORK_DIAGRAMS.md) for detailed documentation.
-
-### Track Section Monitor (NEW in v1.12.0)
-Monitor trains along defined track sections with intelligent service classification and alerts. Enriched with VSTP schedule data to identify freight, RHTT, steam specials, and named trains. Fire Home Assistant events when specific service types enter your monitored sections. See [TRACK_SECTION_MONITOR.md](TRACK_SECTION_MONITOR.md) for comprehensive documentation.
+### Network Diagrams (NEW in v1.7.0, Enhanced in v1.14.0)
+Visualize train positions on a map of berth connections showing adjacent stations and real-time occupancy. Uses Network Rail's SMART data to build topology graphs. **NEW in v1.14.0**: Network Diagrams now include intelligent alerts and train tracking capabilities, eliminating the need for separate Track Section Monitor configuration for most use cases. See [NETWORK_DIAGRAMS.md](NETWORK_DIAGRAMS.md) for detailed documentation.
 
 **Key capabilities:**
-- Real-time train tracking through signalling berths
-- Automatic service classification (freight, passenger, ECS, RHTT, steam, charter)
-- Configurable alerts for specific train types
-- VSTP schedule enrichment (origin, destination, operator, timing)
-- Home Assistant event triggers for automation
-- Multiple concurrent track sections
+- Real-time berth occupancy visualization
+- Adjacent station connectivity display
+- **NEW**: Intelligent service classification (freight, passenger, ECS, RHTT, steam, charter)
+- **NEW**: Configurable alerts for specific train types
+- **NEW**: VSTP schedule enrichment (origin, destination, operator, timing)
+- **NEW**: Home Assistant event triggers for automation
+- **NEW**: Per-train tracking with detailed attributes
+
+### Track Section Monitor (v1.12.0)
+Monitor trains along defined track sections with intelligent service classification and alerts. **Note**: As of v1.14.0, this functionality is now available directly in Network Diagrams with alert configuration. Track Section Monitor remains available for backward compatibility and specialized use cases. See [TRACK_SECTION_MONITOR.md](TRACK_SECTION_MONITOR.md) for comprehensive documentation.
 
 ## Entities
 

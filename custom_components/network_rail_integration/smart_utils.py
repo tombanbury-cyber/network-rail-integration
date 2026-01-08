@@ -834,21 +834,37 @@ def get_sequential_berths(
         List of berth dictionaries with:
         - berth_id, td_area, stanox, stanme, platform (if at station)
         - Ordered by connection topology
+        - Does NOT include the starting berths themselves
     """
     berth_to_connections = graph.get("berth_to_connections", {})
     berth_to_stanox = graph.get("berth_to_stanox", {})
     stanox_to_berths = graph.get("stanox_to_berths", {})
     
     result = []
-    visited = set()
+    visited = set(start_berth_keys)  # Mark starting berths as visited but don't add to result
     queue = deque()
     
-    # Initialize queue with starting berths
+    # Initialize queue with connections from starting berths
     for berth_key in start_berth_keys:
-        queue.append(berth_key)
-        visited.add(berth_key)
+        connections = berth_to_connections.get(berth_key, {})
+        # Choose which connections to follow based on direction
+        connection_list = connections.get("from" if direction == "up" else "to", [])
+        
+        for conn in connection_list:
+            conn_td_area = conn.get("td_area", "")
+            conn_berth = conn.get("berth", "")
+            
+            if not conn_td_area or not conn_berth:
+                continue
+            
+            conn_key = f"{conn_td_area}:{conn_berth}"
+            
+            if conn_key not in visited:
+                visited.add(conn_key)
+                queue.append(conn_key)
     
-    _LOGGER.debug("Sequential berths %s: Starting from %d berths", direction, len(start_berth_keys))
+    _LOGGER.debug("Sequential berths %s: Starting from %d berths, initial queue: %d", 
+                  direction, len(start_berth_keys), len(queue))
     
     while queue and len(result) < max_berths:
         current_berth_key = queue.popleft()

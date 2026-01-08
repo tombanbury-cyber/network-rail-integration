@@ -781,7 +781,7 @@ class NetworkRailOptionsFlowHandler(config_entries.OptionsFlow):
                     ): bool,
                     vol.Optional(
                         "diagram_range",
-                        default=self._diagram_to_edit.get("range", 4)
+                        default=self._diagram_to_edit.get("range", 5)
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=1,

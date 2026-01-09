@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] - 2026-01-08
+
+### Added - Phase 1: Enhanced Network Diagram Berth Topology with Station Attribution
+
+- **Sequential Berth Lists**: Network Diagrams now include `up_berths` and `down_berths` attributes
+  - Complete ordered lists of ALL berths in the specified range
+  - Follows actual track topology using SMART berth connection data
+  - Includes station attribution (`stanox`, `stanme`) for each berth
+  - Shows which berths are at stations vs. between stations
+  - Enables building detailed topological diagrams like Herne Bay example
+  
+- **Station Attribution**: Enhanced berth objects with station identification
+  - `stanox`: STANOX code if berth is at a station, `null` if between stations
+  - `stanme`: Station name if berth is at a station, `null` if between stations
+  - Applied to `center_berths`, `up_berths`, `down_berths`, and station berths in `up_stations`/`down_stations`
+  
+- **New Utility Function**: `get_sequential_berths()` in `smart_utils.py`
+  - Implements breadth-first traversal of berth connections
+  - Supports "up" and "down" directions
+  - Configurable maximum berths to collect
+  - Includes platform information when available
+
+### Changed
+
+- **Backward Compatible**: All existing attributes and fields remain unchanged
+  - Existing dashboard cards and automations continue to work
+  - New attributes are additions only, no breaking changes
+  - Sensor state (occupied berth count) unchanged
+
+### Documentation
+
+- Updated [NETWORK_DIAGRAMS.md](NETWORK_DIAGRAMS.md) with Phase 1 sequential berth documentation
+- Added examples showing how to use `up_berths` and `down_berths` in templates
+- Added visual example of station attribution in berth lists
+
 ## [1.14.0] - 2026-01-07
 
 ### Added

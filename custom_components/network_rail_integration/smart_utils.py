@@ -813,3 +813,124 @@ def find_nearby_stations_by_berth_proximity(
     
     # Return sorted by distance
     return sorted(nearby_stations.items(), key=lambda x: x[1])
+
+
+def get_sequential_berths(
+    graph: dict[str, Any],
+    start_berth_keys: set[str],
+    direction: str,  # "up" or "down"
+    max_berths: int
+) -> list[dict[str, Any]]:
+    """
+    Traverse berth connections sequentially to build ordered list.
+    
+    Args:
+        graph: SMART graph structure
+        start_berth_keys: Starting berths from center station
+        direction: "up" or "down" - determines which connections to follow
+        max_berths: Maximum number of berths to collect
+        
+    Returns:
+        List of berth dictionaries with:
+        - berth_id, td_area, stanox, stanme, platform (if at station)
+        - Ordered by connection topology
+        - Does NOT include the starting berths themselves
+    """
+    berth_to_connections = graph.get("berth_to_connections", {})
+    berth_to_stanox = graph.get("berth_to_stanox", {})
+    stanox_to_berths = graph.get("stanox_to_berths", {})
+    
+    # Validate input
+    if not start_berth_keys:
+        _LOGGER.warning("Sequential berths %s: Empty start_berth_keys provided", direction)
+        return []
+    
+    result = []
+    visited = set(start_berth_keys)  # Mark starting berths as visited but don't add to result
+    queue = deque()
+    
+    # Initialize queue with connections from starting berths
+    for berth_key in start_berth_keys:
+        connections = berth_to_connections.get(berth_key, {})
+        # Choose which connections to follow based on direction
+        connection_list = connections.get("from" if direction == "up" else "to", [])
+        
+        for conn in connection_list:
+            conn_td_area = conn.get("td_area", "")
+            conn_berth = conn.get("berth", "")
+            
+            if not conn_td_area or not conn_berth:
+                continue
+            
+            conn_key = f"{conn_td_area}:{conn_berth}"
+            
+            if conn_key not in visited:
+                visited.add(conn_key)
+                queue.append(conn_key)
+    
+    _LOGGER.debug("Sequential berths %s: Starting from %d berths, initial queue: %d", 
+                  direction, len(start_berth_keys), len(queue))
+    
+    while queue and len(result) < max_berths:
+        current_berth_key = queue.popleft()
+        
+        # Parse berth key
+        parts = current_berth_key.split(":", 1)
+        if len(parts) != 2:
+            continue
+        
+        td_area, berth_id = parts
+        
+        # Look up stanox for this berth
+        stanox = berth_to_stanox.get(current_berth_key)
+        stanme = None
+        platform = ""
+        
+        # If we have a stanox, get station name and platform info
+        if stanox:
+            berth_records = stanox_to_berths.get(stanox, [])
+            if berth_records:
+                stanme = berth_records[0].get("stanme", "")
+                
+                # Find platform for this specific berth
+                for record in berth_records:
+                    if record.get("td_area") == td_area:
+                        if record.get("from_berth") == berth_id or record.get("to_berth") == berth_id:
+                            platform = record.get("platform", "")
+                            if platform:
+                                break
+        
+        # Add berth to result
+        berth_dict = {
+            "berth_id": berth_id,
+            "td_area": td_area,
+            "platform": platform,
+            "stanox": stanox,
+            "stanme": stanme,
+        }
+        result.append(berth_dict)
+        
+        # Get connections for this berth
+        connections = berth_to_connections.get(current_berth_key, {})
+        
+        # Choose which connections to follow based on direction
+        # "up" direction follows "from" connections (going towards lower berth numbers typically)
+        # "down" direction follows "to" connections (going towards higher berth numbers typically)
+        connection_list = connections.get("from" if direction == "up" else "to", [])
+        
+        # Add unvisited connected berths to queue
+        for conn in connection_list:
+            conn_td_area = conn.get("td_area", "")
+            conn_berth = conn.get("berth", "")
+            
+            if not conn_td_area or not conn_berth:
+                continue
+            
+            conn_key = f"{conn_td_area}:{conn_berth}"
+            
+            if conn_key not in visited:
+                visited.add(conn_key)
+                queue.append(conn_key)
+    
+    _LOGGER.debug("Sequential berths %s: Collected %d berths", direction, len(result))
+    return result

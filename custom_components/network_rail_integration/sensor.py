@@ -38,6 +38,10 @@ from .debug_log import DebugLogSensor
 
 _LOGGER = logging.getLogger(__name__)
 
+# Constants for Network Diagram berth estimation
+# Estimate ~15 berths per station on average for sequential berth collection
+BERTHS_PER_STATION_ESTIMATE = 15
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -1263,6 +1267,8 @@ class NetworkDiagramSensor(SensorEntity):
                     "platform": berth_info.get("platform", ""),
                     "occupied": occupied,
                     "headcode": headcode,
+                    "stanox": stanox,  # NEW: Add stanox to station berths
+                    "stanme": berth_info.get("stanme", ""),  # NEW: Add stanme to station berths
                 })
             
             stations.append({
@@ -1288,7 +1294,7 @@ class NetworkDiagramSensor(SensorEntity):
         graph = self.smart_manager.get_graph()
         berth_state = self.hub.state.berth_state
         
-        from .smart_utils import get_berths_for_stanox, get_station_berths_with_connections
+        from .smart_utils import get_berths_for_stanox, get_station_berths_with_connections, get_sequential_berths
         
         # Get station data with connections
         station_data = get_station_berths_with_connections(graph, self._center_stanox, self._diagram_range * 3)
@@ -1314,6 +1320,8 @@ class NetworkDiagramSensor(SensorEntity):
                 "platform": berth_info.get("platform", ""),
                 "occupied": occupied,
                 "headcode": headcode,
+                "stanox": self._center_stanox,  # NEW: Add stanox to center berths
+                "stanme": station_data.get("stanme", ""),  # NEW: Add stanme to center berths
             })
         
         # Build up stations with occupancy
@@ -1341,6 +1349,45 @@ class NetworkDiagramSensor(SensorEntity):
             "smart_data_last_updated": last_updated.isoformat() if last_updated else None,
             "diagram_range": self._diagram_range,
         }
+        
+        # NEW: Build sequential berth lists for Phase 1
+        # Get center berth keys
+        center_berth_keys = {
+            f"{b['td_area']}:{b['berth_id']}" 
+            for b in center_berths 
+            if b['td_area'] and b['berth_id']
+        }
+        
+        # Build up_berths and down_berths
+        up_berths_sequential = get_sequential_berths(
+            graph, 
+            center_berth_keys,
+            direction="up",
+            max_berths=self._diagram_range * BERTHS_PER_STATION_ESTIMATE
+        )
+        
+        down_berths_sequential = get_sequential_berths(
+            graph,
+            center_berth_keys, 
+            direction="down",
+            max_berths=self._diagram_range * BERTHS_PER_STATION_ESTIMATE
+        )
+        
+        # Add occupancy data to sequential berths
+        # Process lists separately to avoid unnecessary concatenation
+        for berth in up_berths_sequential:
+            berth_data = berth_state.get_berth(berth['td_area'], berth['berth_id'])
+            berth['occupied'] = bool(berth_data)
+            berth['headcode'] = berth_data.get("description") if berth_data else None
+        
+        for berth in down_berths_sequential:
+            berth_data = berth_state.get_berth(berth['td_area'], berth['berth_id'])
+            berth['occupied'] = bool(berth_data)
+            berth['headcode'] = berth_data.get("description") if berth_data else None
+        
+        # Add to attributes
+        attrs["up_berths"] = up_berths_sequential
+        attrs["down_berths"] = down_berths_sequential
         
         # Add train tracking data if alerts are enabled
         if self._alert_services:

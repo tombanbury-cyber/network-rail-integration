@@ -159,6 +159,101 @@ alert_services_enabled:
   steam: true
 ```
 
+### New in Phase 1: Sequential Berth Topology
+
+**Network Diagrams now include `up_berths` and `down_berths` attributes** that list ALL berths in sequence with station attribution:
+
+```yaml
+up_berths:  # Sequential list of all berths in "up" direction
+  - berth_id: "5075"
+    td_area: "EK"
+    platform: ""
+    occupied: false
+    headcode: null
+    stanox: null          # Between stations
+    stanme: null
+  - berth_id: "5073"
+    td_area: "EK"
+    platform: "1"
+    occupied: false
+    headcode: null
+    stanox: "89486"       # At Chestfield & Swalecliffe
+    stanme: "CHESTFLD"
+  - berth_id: "5071"
+    td_area: "EK"
+    platform: ""
+    occupied: false
+    headcode: null
+    stanox: null          # Between stations
+    stanme: null
+  - berth_id: "5067"
+    td_area: "EK"
+    platform: "2"
+    occupied: true
+    headcode: "2F45"
+    stanox: "89489"       # At Whistable
+    stanme: "WHISTBLE"
+
+down_berths:  # Sequential list of all berths in "down" direction
+  - berth_id: "5097"
+    td_area: "EK"
+    platform: ""
+    occupied: false
+    headcode: null
+    stanox: "89479"       # At Birchington-on-Sea
+    stanme: "BIRCHGTN"
+  - berth_id: "5101"
+    td_area: "EK"
+    platform: ""
+    occupied: false
+    headcode: null
+    stanox: "89478"       # At Westgate-on-Sea
+    stanme: "WESTGATE"
+  - berth_id: "5107"
+    td_area: "EK"
+    platform: ""
+    occupied: false
+    headcode: null
+    stanox: null          # Between stations
+    stanme: null
+```
+
+This enables building detailed topological diagrams showing exact berth sequences and station locations.
+
+**Enhanced Berth Attributes:**
+
+All berth objects (in `center_berths`, `up_berths`, `down_berths`, and station berths) now include:
+- `stanox`: STANOX code if berth is at a station, `null` if between stations
+- `stanme`: Station name if berth is at a station, `null` if between stations
+
+**Example: Display sequential berths with station markers**
+```yaml
+type: markdown
+content: |
+  ## Up Line from {{ state_attr('sensor.network_rail_integration_diagram_89483', 'center_name') }}
+  
+  {% for berth in state_attr('sensor.network_rail_integration_diagram_89483', 'up_berths') %}
+  {% if berth.stanme %}
+  
+  === **{{ berth.stanme }}** ({{ berth.stanox }}) ===
+  {% endif %}
+  **{{ berth.berth_id }}**: {% if berth.occupied %}🚂 {{ berth.headcode }}{% else %}⚪{% endif %}{% if berth.platform %} [Platform {{ berth.platform }}]{% endif %}
+  {% endfor %}
+```
+
+**Example: Count stations in sequential lists**
+```yaml
+type: markdown
+content: |
+  ## Track Topology
+  
+  **Stations in up direction**: {{ state_attr('sensor.network_rail_integration_diagram_89483', 'up_berths') | selectattr('stanox', 'ne', none) | map(attribute='stanox') | unique | list | length }}
+  
+  **Stations in down direction**: {{ state_attr('sensor.network_rail_integration_diagram_89483', 'down_berths') | selectattr('stanox', 'ne', none) | map(attribute='stanox') | unique | list | length }}
+  
+  **Total berths monitored**: {{ state_attr('sensor.network_rail_integration_diagram_89483', 'up_berths') | length + state_attr('sensor.network_rail_integration_diagram_89483', 'down_berths') | length }}
+```
+
 ## Creating a Lovelace Dashboard
 
 ### Simple Text Display
